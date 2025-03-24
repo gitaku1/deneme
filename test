@@ -1,34 +1,46 @@
-import os
-import datetime
+#!/bin/bash
 
-# Input file name
-input_file = 'input.txt'
-# Output file name
-output_file = 'output.txt'
+# Üst dizini alıyoruz
+parent_dir=$1
 
-# The cutoff year for 2023
-year_cutoff = 2023
+# Çıktı dosyasının adı
+output_file="output.txt"
 
-# Read the input file
-with open(input_file, 'r') as f:
-    directories = f.readlines()
+# 2023 yılına kadar olanları kontrol edeceğiz
+year_cutoff=2023
 
-# Open the output file to write
-with open(output_file, 'w') as output_f:
-    for directory in directories:
-        directory = directory.strip()  # Remove any trailing newlines or spaces
-        
-        if os.path.isdir(directory):  # Check if the directory exists
-            # Walk through the subdirectories
-            for root, dirs, files in os.walk(directory):
-                for dir_name in dirs:
-                    dir_path = os.path.join(root, dir_name)
-                    # Get the creation time of the folder
-                    creation_time = os.path.getctime(dir_path)
-                    creation_date = datetime.datetime.fromtimestamp(creation_time)
-                    
-                    # If the creation year is before 2023, write to the output file
-                    if creation_date.year < year_cutoff:
-                        output_f.write(f"{dir_path}\n")
+# Çıktı dosyasını sıfırlıyoruz (varsa eski içerikleri temizliyoruz)
+> "$output_file"
 
-print("Script ran successfully and the result has been written to output.txt.")
+# Eğer üst dizin verilmediyse hata mesajı veriyoruz
+if [ -z "$parent_dir" ]; then
+    echo "Lütfen bir üst dizin belirtin."
+    exit 1
+fi
+
+# Üst dizin geçerli bir dizin mi kontrol ediyoruz
+if [ ! -d "$parent_dir" ]; then
+    echo "Verilen dizin mevcut değil: $parent_dir"
+    exit 1
+fi
+
+# Alt dizinlerde gezerek, 2023'ten önce oluşturulmuş olanları listeliyoruz
+find "$parent_dir" -type d | while read dir; do
+    # Dizin oluşturulma zamanını alıyoruz
+    creation_time=$(stat -c %W "$dir")
+    
+    # Eğer oluşturulma tarihi 0 ise (dizin oluşturulmamış veya dosya sisteminde bilgi yok), geçiyoruz
+    if [ "$creation_time" -eq 0 ]; then
+        continue
+    fi
+
+    # Tarihi insan okuyabileceği bir biçime dönüştürüyoruz
+    creation_year=$(date -d @$creation_time +"%Y")
+
+    # Eğer tarih 2023'ten önceyse, çıktıya yazıyoruz
+    if [ "$creation_year" -lt "$year_cutoff" ]; then
+        echo "$dir" >> "$output_file"
+    fi
+done
+
+echo "2023 öncesi oluşturulmuş dizinler output.txt dosyasına yazıldı."
