@@ -26,3 +26,11 @@ while IFS= read -r base_directory; do
 done < "$input_file"
 
 echo "Sonuçlar $output_file dosyasına yazıldı."
+
+
+find /path/to/your/directory -type d -exec stat --format="%W %n" {} \; | \
+awk '{ if ($1 != 0 && $1 <= 1672531199) print $2 }' > output.txt
+
+
+ls -lt --time=creation | awk '$6 <= 2023 {print $0}'
+
