@@ -34,3 +34,6 @@ awk '{ if ($1 != 0 && $1 <= 1672531199) print $2 }' > output.txt
 
 ls -lt --time=creation | awk '$6 <= 2023 {print $0}'
 
+find . -type f -printf '%T+ %p\n' | awk -F' ' '$1 <= "2023-01-01" {print $2}' | sort
+
+
