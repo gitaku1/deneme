@@ -29,11 +29,11 @@ find "$parent_dir" -type d | while read dir; do
     # Dizin oluşturulma zamanını alıyoruz
     creation_time=$(stat -c %W "$dir")
     
-    # Eğer oluşturulma tarihi 0 ise (dizin oluşturulmamış veya dosya sisteminde bilgi yok), geçiyoruz
+    # Eğer oluşturulma zamanı 0 ise (bilgi yoksa), son değiştirilme zamanını kullanıyoruz
     if [ "$creation_time" -eq 0 ]; then
-        continue
+        creation_time=$(stat -c %Y "$dir")
     fi
-
+    
     # Tarihi insan okuyabileceği bir biçime dönüştürüyoruz
     creation_year=$(date -d @$creation_time +"%Y")
 
