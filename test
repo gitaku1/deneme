@@ -1,34 +1,35 @@
 import os
 import datetime
 
-# Girdi dosyasının adı
+# Input file name
 input_file = 'input.txt'
-# Çıktı dosyasının adı
+# Output file name
 output_file = 'output.txt'
 
-# 2023 yılı öncesi tarihleri kontrol etmek için
+# The cutoff year for 2023
 year_cutoff = 2023
 
-# Dosyayı oku
+# Read the input file
 with open(input_file, 'r') as f:
     directories = f.readlines()
 
-# Çıktı dosyasını aç
+# Open the output file to write
 with open(output_file, 'w') as output_f:
     for directory in directories:
-        directory = directory.strip()  # Satır sonu karakterini temizle
+        directory = directory.strip()  # Remove any trailing newlines or spaces
         
-        if os.path.isdir(directory):  # Eğer dizin mevcutsa
-            # Dizin içindeki alt klasörlere bak
+        if os.path.isdir(directory):  # Check if the directory exists
+            # Walk through the subdirectories
             for root, dirs, files in os.walk(directory):
                 for dir_name in dirs:
                     dir_path = os.path.join(root, dir_name)
-                    # Klasörün oluşturulma tarihini al
+                    # Get the creation time of the folder
                     creation_time = os.path.getctime(dir_path)
                     creation_date = datetime.datetime.fromtimestamp(creation_time)
                     
-                    # Eğer tarih 2023 öncesiyse, çıktıya yaz
+                    # If the creation year is before 2023, write to the output file
                     if creation_date.year < year_cutoff:
                         output_f.write(f"{dir_path}\n")
 
-print("Script çalıştı ve output.txt dosyasına yazıldı.")
+print("Script ran successfully and the result has been written to output.txt.")
+
