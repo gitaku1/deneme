@@ -1,39 +1,48 @@
 #!/bin/bash
 
-# Dizinlerin bulunduğu txt dosyası
-input_file="dizinler.txt"
+# Kontrol edilecek dizin
+base_directory="$1"
 # Çıktının yazılacağı dosya
 output_file="output.txt"
 
 # Çıktı dosyasını sıfırla
 > "$output_file"
 
-# Dizinleri oku
-while IFS= read -r base_directory; do
-    echo "Kontrol edilen dizin: $base_directory" >> "$output_file"
-    
-    # 2023 ve öncesi için dizinleri bul
-    result=$(find "$base_directory" -maxdepth 1 -type d -ctime +$(($(($(date +%Y) - 2023)) * 365)) -printf "%f\n")
-    
-    # Eğer sonuç varsa, klasör isimlerini tam yolu ile yaz
-    if [ -n "$result" ]; then
-        for folder in $result; do
-            echo "$base_directory/$folder" >> "$output_file"
-        done
-    fi
-    
-    echo "" >> "$output_file"  # Boş bir satır ekle
-done < "$input_file"
+# Dosyaları bul ve filtrele
+find "$base_directory" -type f -printf '%T+ %p\n' | awk -F' ' '$1 <= "2023-01-01" {print $2}' | sort >> "$output_file"
 
 echo "Sonuçlar $output_file dosyasına yazıldı."
 
 
-find /path/to/your/directory -type d -exec stat --format="%W %n" {} \; | \
-awk '{ if ($1 != 0 && $1 <= 1672531199) print $2 }' > output.txt
+#!/bin/bash
 
+# Üst dizini alıyoruz
+parent_dir=$1
 
-ls -lt --time=creation | awk '$6 <= 2023 {print $0}'
+# Çıktı dosyasının adı
+output_file="output.txt"
 
-find . -type f -printf '%T+ %p\n' | awk -F' ' '$1 <= "2023-01-01" {print $2}' | sort
+# 2023 yılına kadar olanları kontrol edeceğiz
+date_cutoff="2023-01-01"
 
+# Çıktı dosyasını sıfırlıyoruz (varsa eski içerikleri temizliyoruz)
+> "$output_file"
 
+# Eğer üst dizin verilmediyse hata mesajı veriyoruz
+if [ -z "$parent_dir" ]; then
+    echo "Lütfen bir üst dizin belirtin."
+    exit 1
+fi
+
+# Üst dizin geçerli bir dizin mi kontrol ediyoruz
+if [ ! -d "$parent_dir" ]; then
+    echo "Verilen dizin mevcut değil: $parent_dir"
+    exit 1
+fi
+
+# Belirtilen dizin altındaki dosyaların tarih bilgisiyle sıralama yapıyoruz
+find "$parent_dir" -type f -printf '%T+ %p\n' | \
+awk -F' ' -v date_cutoff="$date_cutoff" '$1 <= date_cutoff {print $2}' | \
+sort > "$output_file"
+
+echo "2023 öncesi oluşturulmuş dosyalar output.txt dosyasına yazıldı."
