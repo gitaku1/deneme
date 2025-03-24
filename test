@@ -13,21 +13,11 @@ while IFS= read -r base_directory; do
     echo "Kontrol edilen dizin: $base_directory" >> "$output_file"
     
     # 2023 ve öncesi için dizinleri bul
-    result=$(find "$base_directory" -maxdepth 1 -type d -newermt "2023-01-01" ! -newermt "2024-01-01" -printf "%f\n")
+    result=$(find "$base_directory" -maxdepth 1 -type d -ctime +$(($(($(date +%Y) - 2023)) * 365)) -printf "%f\n")
     
     # Eğer sonuç varsa, klasör isimlerini tam yolu ile yaz
     if [ -n "$result" ]; then
         for folder in $result; do
-            echo "$base_directory/$folder" >> "$output_file"
-        done
-    fi
-    
-    # 2023'ten önce oluşturulmuş dizinleri bul
-    result_before_2023=$(find "$base_directory" -maxdepth 1 -type d -not -newermt "2023-01-01" -printf "%f\n")
-    
-    # Eğer sonuç varsa, klasör isimlerini tam yolu ile yaz
-    if [ -n "$result_before_2023" ]; then
-        for folder in $result_before_2023; do
             echo "$base_directory/$folder" >> "$output_file"
         done
     fi
