@@ -12,6 +12,7 @@ with open(output_file, 'w') as out_file:
     with open(input_file, 'r') as in_file:
         for line in in_file:
             directory = line.strip()
+            print(f"Kontrol edilen dizin: {directory}")
             # Dizin var mı kontrol et
             if os.path.isdir(directory):
                 # Dizin içindeki dosyaları kontrol et
@@ -22,6 +23,9 @@ with open(output_file, 'w') as out_file:
                         # Klasörün oluşturulma tarihini al
                         creation_time = os.path.getctime(item_path)
                         creation_date = datetime.fromtimestamp(creation_time)
+                        print(f"Klasör: {item_path}, Oluşturulma Tarihi: {creation_date}")
                         # 2023 öncesi ise yaz
                         if creation_date.year < 2023:
                             out_file.write(f"{item_path}\n")
+            else:
+                print(f"Hata: {directory} dizini bulunamadı.")
