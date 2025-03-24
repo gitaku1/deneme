@@ -32,4 +32,3 @@ with open(output_file, 'w') as output_f:
                         output_f.write(f"{dir_path}\n")
 
 print("Script ran successfully and the result has been written to output.txt.")
-
