@@ -14,11 +14,16 @@ while IFS= read -r base_directory; do
     
     # Yıllar
     for year in {2017..2023}; do
-        echo "Kontrol edilen yıl: $year" >> "$output_file"
         # Dizin altındaki klasörleri listele ve belirtilen yılı içerenleri filtrele
-        ls -l "$base_directory" 2>/dev/null | grep "$year" >> "$output_file"
-        echo "" >> "$output_file"  # Boş bir satır ekle
+        result=$(ls -l "$base_directory" 2>/dev/null | grep "$year")
+        
+        if [ -n "$result" ]; then
+            # Eğer sonuç varsa, yaz
+            echo "$result" >> "$output_file"
+        fi
     done
+    
+    echo "" >> "$output_file"  # Boş bir satır ekle
 done < "$input_file"
 
 echo "Sonuçlar $output_file dosyasına yazıldı."
