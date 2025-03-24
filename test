@@ -46,3 +46,84 @@ awk -F' ' -v date_cutoff="$date_cutoff" '$1 <= date_cutoff {print $2}' | \
 sort > "$output_file"
 
 echo "2023 öncesi oluşturulmuş dosyalar output.txt dosyasına yazıldı."
+
+
+
+
+#!/bin/bash
+
+# Dizinlerin bulunduğu dosya
+directories_file="directories.txt"
+# Çıktının yazılacağı dosya
+output_file="output.txt"
+
+# Çıktı dosyasını sıfırla
+> "$output_file"
+
+# Dizinleri oku ve her biri için uygun dosyaları bul
+while IFS= read -r directory; do
+    if [ -d "$directory" ]; then
+        echo "İşleniyor: $directory" >> "$output_file"
+        find "$directory" -type f -printf '%T+ %p\n' | awk -F' ' '$1 <= "2023-01-01" {print $2}' | sort >> "$output_file"
+        echo "" >> "$output_file"  # Her dizin arasında boş bir satır ekle
+    else
+        echo "Dizin bulunamadı: $directory" >> "$output_file"
+    fi
+done < "$directories_file"
+
+echo "Sonuçlar $output_file dosyasına yazıldı."
+
+
+
+#!/bin/bash
+
+# Dizinlerin listelendiği dosyanın adı
+input_file=$1
+
+# Çıktı dosyasının adı
+output_file="output.txt"
+
+# 2023 yılına kadar olanları kontrol edeceğiz
+date_cutoff="2023-01-01"
+
+# Çıktı dosyasını sıfırlıyoruz (varsa eski içerikleri temizliyoruz)
+> "$output_file"
+
+# Eğer giriş dosyası verilmediyse hata mesajı veriyoruz
+if [ -z "$input_file" ]; then
+    echo "Lütfen bir dosya yolu belirtin."
+    exit 1
+fi
+
+# Giriş dosyasının geçerli olup olmadığını kontrol ediyoruz
+if [ ! -f "$input_file" ]; then
+    echo "Verilen dosya mevcut değil: $input_file"
+    exit 1
+fi
+
+# Dosyadaki her bir dizini tek tek işliyoruz
+while IFS= read -r parent_dir; do
+    # Eğer dizin boşsa veya geçerli bir dizin değilse, bir sonraki dizine geçiyoruz
+    if [ -z "$parent_dir" ] || [ ! -d "$parent_dir" ]; then
+        continue
+    fi
+
+    # Belirtilen dizin altındaki dosyaların tarih bilgisiyle sıralama yapıyoruz
+    find "$parent_dir" -type f -printf '%T+ %p\n' | \
+    awk -F' ' -v date_cutoff="$date_cutoff" '$1 <= date_cutoff {print $2}' | \
+    sort >> "$output_file"
+
+done < "$input_file"
+
+echo "2023 öncesi oluşturulmuş dosyalar output.txt dosyasına yazıldı."
+
+
+
+
+
+
+
+
+
+
+
