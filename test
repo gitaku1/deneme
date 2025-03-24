@@ -1,3 +1,16 @@
+echo "Files and directories that will be deleted:"
+while IFS= read -r path; do
+    if [ -e "$path" ]; then
+        echo "$path"
+    else
+        echo "Not found: $path"
+    fi
+done < output.txt
+
+
+
+
+
 
 while IFS= read -r dir; do
     # Yeni dizini oluştur
