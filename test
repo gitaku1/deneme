@@ -14,8 +14,8 @@ while IFS= read -r base_directory; do
     
     # Yıllar
     for year in {2017..2023}; do
-        # Dizin altındaki klasörleri listele ve belirtilen yılı içerenleri filtrele
-        result=$(ls "$base_directory" 2>/dev/null | grep "$year")
+        # Belirtilen yıl aralığında oluşturulmuş klasörleri bul
+        result=$(find "$base_directory" -maxdepth 1 -type d -newermt "$year-01-01" ! -newermt "$((year + 1))-01-01" -printf "%f\n")
         
         if [ -n "$result" ]; then
             # Eğer sonuç varsa, klasör isimlerini tam yolu ile yaz
