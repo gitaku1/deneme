@@ -1,46 +1,27 @@
-#!/bin/bash
+import os
+from datetime import datetime
 
-# Üst dizini alıyoruz
-parent_dir=$1
+# Dizinlerin bulunduğu txt dosyasının adı
+input_file = 'dizinler.txt'
+# Çıktının yazılacağı dosya
+output_file = 'output.txt'
 
-# Çıktı dosyasının adı
-output_file="output.txt"
-
-# 2023 yılına kadar olanları kontrol edeceğiz
-year_cutoff=2023
-
-# Çıktı dosyasını sıfırlıyoruz (varsa eski içerikleri temizliyoruz)
-> "$output_file"
-
-# Eğer üst dizin verilmediyse hata mesajı veriyoruz
-if [ -z "$parent_dir" ]; then
-    echo "Lütfen bir üst dizin belirtin."
-    exit 1
-fi
-
-# Üst dizin geçerli bir dizin mi kontrol ediyoruz
-if [ ! -d "$parent_dir" ]; then
-    echo "Verilen dizin mevcut değil: $parent_dir"
-    exit 1
-fi
-
-# Alt dizinlerde gezerek, 2023'ten önce oluşturulmuş olanları listeliyoruz
-find "$parent_dir" -type d | while read dir; do
-    # Dizin oluşturulma zamanını alıyoruz
-    creation_time=$(stat -c %W "$dir")
-    
-    # Eğer oluşturulma zamanı 0 ise (bilgi yoksa), son değiştirilme zamanını kullanıyoruz
-    if [ "$creation_time" -eq 0 ]; then
-        creation_time=$(stat -c %Y "$dir")
-    fi
-    
-    # Tarihi insan okuyabileceği bir biçime dönüştürüyoruz
-    creation_year=$(date -d @$creation_time +"%Y")
-
-    # Eğer tarih 2023'ten önceyse, çıktıya yazıyoruz
-    if [ "$creation_year" -lt "$year_cutoff" ]; then
-        echo "$dir" >> "$output_file"
-    fi
-done
-
-echo "2023 öncesi oluşturulmuş dizinler output.txt dosyasına yazıldı."
+# Çıktı dosyasını aç
+with open(output_file, 'w') as out_file:
+    # Dizinleri oku
+    with open(input_file, 'r') as in_file:
+        for line in in_file:
+            directory = line.strip()
+            # Dizin var mı kontrol et
+            if os.path.isdir(directory):
+                # Dizin içindeki dosyaları kontrol et
+                for item in os.listdir(directory):
+                    item_path = os.path.join(directory, item)
+                    # Eğer bir klasörse
+                    if os.path.isdir(item_path):
+                        # Klasörün oluşturulma tarihini al
+                        creation_time = os.path.getctime(item_path)
+                        creation_date = datetime.fromtimestamp(creation_time)
+                        # 2023 öncesi ise yaz
+                        if creation_date.year < 2023:
+                            out_file.write(f"{item_path}\n")
