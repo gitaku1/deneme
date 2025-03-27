@@ -1,1 +1,24 @@
+import shutil  
+import os
+
+# Stanza kaynak dizini
+stanza_dir = os.path.expanduser("~/.stanza")
+
+# Klasörü oluştur (eğer yoksa)
+os.makedirs(stanza_dir, exist_ok=True)
+
+# JSON dosyasını doğru dizine kopyala
+shutil.copy("/data01/nltk-data/resources_1.10.0.json", os.path.join(stanza_dir, "resources.json"))
+
+print("Resource dosyası başarıyla taşındı!")
+
+
+import stanza  
+
+# İngilizce modeli indir (eğer yoksa)
+stanza.download('en')
+
+# Pipeline oluştur ve test et
+nlp = stanza.Pipeline('en')
+print(nlp)
 
