@@ -1,130 +1,121 @@
 import asyncio
-import nest_asyncio
-import nbformat
 from nbconvert import HTMLExporter
-from pyppeteer import launch, errors as pyppeteer_errors
+import nbformat
+import logging
+import os
+from pyppeteer import launch
+
+# ================== Ayarlar ==================
 
 NOTEBOOK_PATH = "notebook_adi.ipynb"
 HTML_PATH = "notebook.html"
 PDF_PATH = "notebook.pdf"
-CHROME_PATH = "/veri/01/chrome"  # Yerel Chromium path'i
+CHROME_PATH = "/veri/01/chrome"  # Buraya sistemdeki Chrome'un tam path'ini ver
 
-# HTML çıktısı oluştur
-def convert_notebook_to_html():
-    with open(NOTEBOOK_PATH, "r") as f:
-        nb_content = f.read()
+# ========== Geniş sayfalarda tüm içeriğin sığması için özel CSS ==========
 
-    nb_node = nbformat.reads(nb_content, as_version=4)
-    html_exporter = HTMLExporter()
-    html_data, _ = html_exporter.from_notebook_node(nb_node)
+CUSTOM_CSS = """
+<style>
+/* Sayfa boyutunu A4'e göre optimize et */
+@page {
+    size: A4 landscape;
+    margin: 1cm;
+}
 
-    # Yazdırma dostu CSS
-    custom_css = """
-    <style>
-    @media print {
-        html, body {
-            width: 100%;
-            margin: 0;
-            padding: 0;
-            font-size: 10px;
-            -webkit-print-color-adjust: exact;
-        }
+/* Geniş tablolar ve çıktıların taşmaması için */
+.output, .output_area pre {
+    white-space: pre-wrap !important;
+    word-wrap: break-word;
+    overflow-x: auto;
+    max-width: 100%;
+    font-size: 9pt;
+}
 
-        .output_area, pre, code {
-            font-size: 8px !important;
-            white-space: pre-wrap !important;
-            word-wrap: break-word !important;
-            overflow-x: auto !important;
-        }
+/* Kod ve markdown blokları */
+code, pre {
+    font-size: 9pt !important;
+    white-space: pre-wrap !important;
+}
 
-        .output_area {
-            transform: scale(0.75);
-            transform-origin: top left;
-            max-width: 140%;
-        }
+/* Genel stiller */
+body {
+    font-family: "Arial", sans-serif;
+    font-size: 10pt;
+    margin: 0;
+    padding: 0;
+}
+</style>
+"""
 
-        table {
-            width: 100% !important;
-            table-layout: fixed;
-            font-size: 8px;
-            border-collapse: collapse;
-        }
+# ================== Adım 1: Notebook'u HTML'e dönüştür ==================
 
-        th, td {
-            border: 1px solid #999;
-            padding: 2px;
-            word-break: break-word;
-        }
+print("📘 Notebook HTML'e dönüştürülüyor...")
 
-        .container, .cell {
-            margin: 0 !important;
-            padding: 0 !important;
-            page-break-inside: avoid;
-        }
-    }
-    </style>
-    """
+with open(NOTEBOOK_PATH, "r", encoding="utf-8") as f:
+    nb_node = nbformat.read(f, as_version=4)
 
-    if "</head>" in html_data:
-        html_data = html_data.replace("</head>", f"{custom_css}</head>")
-    else:
-        html_data = custom_css + html_data
+html_exporter = HTMLExporter()
+(body, _) = html_exporter.from_notebook_node(nb_node)
 
-    with open(HTML_PATH, "w", encoding="utf-8") as f:
-        f.write(html_data)
+# HTML + CSS yaz
+full_html = f"<html><head>{CUSTOM_CSS}</head><body>{body}</body></html>"
 
-# HTML’yi PDF’e dönüştür
+with open(HTML_PATH, "w", encoding="utf-8") as f:
+    f.write(full_html)
+
+print(f"✅ HTML dosyası oluşturuldu: {HTML_PATH}")
+
+# ================== Adım 2: HTML'den PDF oluştur ==================
+
 async def convert_html_to_pdf():
     try:
-        print("✅ Chromium başlatılıyor...")
+        logging.basicConfig(level=logging.INFO)
+        print("📄 PDF oluşturuluyor...")
+
         browser = await launch(
             headless=True,
             executablePath=CHROME_PATH,
-            args=["--no-sandbox", "--disable-setuid-sandbox"]
+            args=["--no-sandbox", "--disable-gpu"],
+            dumpio=True  # logları terminale bas
         )
         page = await browser.newPage()
 
-        print("🔄 Sayfa yükleniyor...")
-        await asyncio.wait_for(
-            page.goto(f"file://{HTML_PATH}", {"waitUntil": "networkidle0"}),
-            timeout=60
-        )
+        html_path_abs = f"file://{os.path.abspath(HTML_PATH)}"
+        print(f"📂 HTML yükleniyor: {html_path_abs}")
+        await page.goto(html_path_abs, {"waitUntil": "networkidle2"})
 
-        print("📄 PDF oluşturuluyor...")
-        await asyncio.wait_for(
-            page.pdf({
-                "path": PDF_PATH,
-                "format": "A4",
-                "printBackground": True,
-                "margin": {
-                    "top": "10mm",
-                    "bottom": "10mm",
-                    "left": "5mm",
-                    "right": "5mm"
-                },
-                "scale": 0.75
-            }),
-            timeout=60
-        )
+        # Sayfa tam yüklendiğinde PDF üret
+        await page.pdf({
+            "path": PDF_PATH,
+            "format": "A4",
+            "landscape": True,
+            "printBackground": True,
+            "margin": {
+                "top": "0.5cm",
+                "bottom": "0.5cm",
+                "left": "0.5cm",
+                "right": "0.5cm"
+            }
+        })
 
-        print("✅ PDF başarıyla oluşturuldu.")
         await browser.close()
+        print(f"✅ PDF başarıyla oluşturuldu: {PDF_PATH}")
 
-    except asyncio.TimeoutError:
-        print("⛔ HATA: İşlem zaman aşımına uğradı! Sayfa yükleme ya da PDF oluşturma çok uzun sürdü.")
-    except pyppeteer_errors.BrowserError as e:
-        print(f"⛔ Chromium başlatılamadı: {e}")
     except Exception as e:
-        print(f"⛔ Beklenmeyen hata oluştu: {e}")
+        print("⛔ PDF oluşturulurken hata oluştu:")
+        print(str(e))
 
-# Çalıştır
-def main():
-    print("📄 HTML dönüştürme başlıyor...")
-    convert_notebook_to_html()
+# ================== Event Loop Sorununu Aşmak için Çalıştırma ==================
 
-    print("📦 PDF'e dönüştürme başlıyor...")
-    nest_asyncio.apply()
-    asyncio.get_event_loop().run_until_complete(convert_html_to_pdf())
+def run_asyncio_task(task):
+    try:
+        asyncio.get_running_loop()
+        # Eğer bir event loop zaten çalışıyorsa
+        import nest_asyncio
+        nest_asyncio.apply()
+    except RuntimeError:
+        # Event loop yoksa, normal başlat
+        pass
+    asyncio.run(task)
 
-if __name__ == "__main__":
-    main()
+run_asyncio_task(convert_html_to_pdf())
