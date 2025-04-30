@@ -1,66 +1,100 @@
-# Yazdırma için gelişmiş CSS (kolon sayısından bağımsız şekilde tabloyu ölçekler)
-custom_css = """
-<style>
-body {
-    margin: 0;
-    padding: 0;
-    font-family: Arial, sans-serif;
-    font-size: 11px;
-    -webkit-print-color-adjust: exact;
-}
+import asyncio
+import nbformat
+from nbconvert import HTMLExporter
+from pyppeteer import launch
 
-@media print {
-    html, body {
-        width: 100%;
-        overflow: visible;
+NOTEBOOK_PATH = "notebook_adi.ipynb"
+HTML_PATH = "notebook.html"
+PDF_PATH = "notebook.pdf"
+
+# HTML çıktısı oluştur
+def convert_notebook_to_html():
+    with open(NOTEBOOK_PATH, "r") as f:
+        nb_content = f.read()
+
+    nb_node = nbformat.reads(nb_content, as_version=4)
+    html_exporter = HTMLExporter()
+    html_data, _ = html_exporter.from_notebook_node(nb_node)
+
+    # Gelişmiş yazdırma CSS’i
+    custom_css = """
+    <style>
+    @media print {
+        html, body {
+            width: 100%;
+            margin: 0;
+            padding: 0;
+            font-size: 10px;
+            -webkit-print-color-adjust: exact;
+        }
+
+        .output_area, pre, code {
+            font-size: 8px !important;
+            white-space: pre-wrap !important;
+            word-wrap: break-word !important;
+            overflow-x: auto !important;
+        }
+
+        .output_area {
+            transform: scale(0.75);
+            transform-origin: top left;
+            max-width: 140%;
+        }
+
+        table {
+            width: 100% !important;
+            table-layout: fixed;
+            font-size: 8px;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            border: 1px solid #999;
+            padding: 2px;
+            word-break: break-word;
+        }
+
+        .container, .cell {
+            margin: 0 !important;
+            padding: 0 !important;
+            page-break-inside: avoid;
+        }
     }
+    </style>
+    """
 
-    /* Kod hücreleri ve çıktı */
-    .input, .output, pre, code {
-        white-space: pre-wrap !important;
-        word-break: break-word !important;
-        font-size: 9px !important;
-        overflow-x: auto !important;
-    }
+    if "</head>" in html_data:
+        html_data = html_data.replace("</head>", f"{custom_css}</head>")
+    else:
+        html_data = custom_css + html_data
 
-    /* Çıktı alanı ölçeklensin */
-    .output_area {
-        transform: scale(0.75);
-        transform-origin: top left;
-        width: 130%; /* geniş içerikler için ölçek öncesi genişlik */
-        max-width: none !important;
-    }
+    with open(HTML_PATH, "w", encoding="utf-8") as f:
+        f.write(html_data)
 
-    /* Tablolar için sabit genişlik ve küçük yazı */
-    table {
-        width: 100% !important;
-        table-layout: fixed;
-        font-size: 8.5px;
-        border-collapse: collapse;
-        overflow-wrap: break-word;
-        word-wrap: break-word;
-    }
+# HTML’yi PDF’e dönüştür (Chrome motoruyla)
+async def convert_html_to_pdf():
+    browser = await launch(headless=True, args=["--no-sandbox"])
+    page = await browser.newPage()
+    await page.goto(f"file://{HTML_PATH}", {"waitUntil": "networkidle0"})
+    await page.pdf({
+        "path": PDF_PATH,
+        "format": "A4",
+        "printBackground": True,
+        "margin": {
+            "top": "10mm",
+            "bottom": "10mm",
+            "left": "5mm",
+            "right": "5mm"
+        },
+        "scale": 0.8  # Gerekirse düşür: 0.75 veya 0.7 gibi
+    })
+    await browser.close()
 
-    th, td {
-        padding: 2px 4px;
-        border: 1px solid #999;
-        word-break: break-word;
-    }
+# Çalıştır
+if __name__ == "__main__":
+    print("HTML dönüştürülüyor...")
+    convert_notebook_to_html()
 
-    .container, .cell {
-        margin: 0 !important;
-        padding: 0 !important;
-    }
-
-    .cell {
-        page-break-inside: avoid;
-    }
-}
-</style>
-"""
-
-# CSS'i <head> içine enjekte et
-if "</head>" in html_data:
-    html_data = html_data.replace("</head>", f"{custom_css}</head>")
-else:
-    html_data = custom_css + html_data
+    print("PDF'e dönüştürülüyor...")
+    asyncio.get_event_loop().run_until_complete(convert_html_to_pdf())
+    print(f"✅ PDF başarıyla oluşturuldu: {PDF_PATH}")
