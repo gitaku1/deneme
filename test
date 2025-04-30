@@ -1,107 +1,109 @@
 import asyncio
-import os
-import logging
-import time
+from pyppeteer import launch
 from nbconvert import HTMLExporter
 import nbformat
-from pyppeteer import launch
-import nest_asyncio
+import os
+import time
 
-# Kullanıcı ayarları
-NOTEBOOK_PATH = "notebook_adi.ipynb"
-HTML_PATH = "notebook.html"
-PDF_PATH = "notebook.pdf"
-CHROME_PATH = "/veri/01/chrome"  # Yerel chrome path
+def log_step(message):
+    print(f"[{time.strftime('%H:%M:%S')}] {message}")
 
-# PDF boyutu ve CSS ayarı (sayfaya sığması için!)
-CUSTOM_CSS = """
+# Notebook dosyasını yükleyin
+log_step("Notebook yükleniyor...")
+with open("notebook_adi.ipynb", "r", encoding="utf-8") as f:
+    nb_content = f.read()
+
+# Notebook içeriğini HTML formatına dönüştürün
+log_step("Notebook HTML'e dönüştürülüyor...")
+nb_node = nbformat.reads(nb_content, as_version=4)
+html_exporter = HTMLExporter()
+html_exporter.exclude_input_prompt = True
+html_exporter.exclude_output_prompt = True
+
+# CSS stilleri: tüm içerik PDF'e yatay sığsın diye
+extra_css = """
 <style>
-@page {
-    size: A4 landscape;
-    margin: 1cm;
-}
 body {
-    font-family: Arial, sans-serif;
     font-size: 10px;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    overflow-x: auto;
 }
-.output, .output_area pre, pre {
+table, pre, code, .output_area {
+    font-size: 10px !important;
     white-space: pre-wrap !important;
-    word-wrap: break-word;
+    word-wrap: break-word !important;
+}
+.output_area {
     overflow-x: auto;
     max-width: 100%;
-    font-size: 9pt;
 }
-table {
-    table-layout: auto !important;
-    width: 100% !important;
-    overflow-x: auto;
-    display: block;
-}
-td, th {
-    word-wrap: break-word;
-    font-size: 9pt;
-    padding: 4px;
+div.output_scroll {
+    overflow-x: auto !important;
+    max-width: 100% !important;
 }
 </style>
 """
 
-def log_step(msg):
-    print(f"[{time.strftime('%H:%M:%S')}] {msg}")
+resources = {"inlining": True}
+html_data, _ = html_exporter.from_notebook_node(nb_node, resources=resources)
+html_data = html_data.replace("</head>", extra_css + "</head>")
 
-# 1. HTML'e dönüştür
-def convert_notebook_to_html():
-    log_step("Notebook HTML'e dönüştürülüyor...")
-    with open(NOTEBOOK_PATH, "r", encoding="utf-8") as f:
-        nb_node = nbformat.read(f, as_version=4)
-    html_exporter = HTMLExporter()
-    (body, _) = html_exporter.from_notebook_node(nb_node)
-    full_html = f"<html><head>{CUSTOM_CSS}</head><body>{body}</body></html>"
-    with open(HTML_PATH, "w", encoding="utf-8") as f:
-        f.write(full_html)
-    log_step(f"✅ HTML yazıldı: {HTML_PATH}")
+html_path = "notebook_rendered.html"
+log_step(f"HTML dosyası {html_path} olarak kaydediliyor...")
+with open(html_path, "w", encoding="utf-8") as f:
+    f.write(html_data)
 
-# 2. PDF'e dönüştür
-async def convert_html_to_pdf():
+# PDF'e dönüştürme
+async def export_pdf():
     log_step("Chrome başlatılıyor...")
-    browser = await launch(
-        headless=True,
-        executablePath=CHROME_PATH,
-        args=["--no-sandbox", "--disable-gpu"],
-        dumpio=True
-    )
-    page = await browser.newPage()
-    html_url = f"file://{os.path.abspath(HTML_PATH)}"
-    log_step(f"HTML sayfası yükleniyor: {html_url}")
-    await page.goto(html_url, {"waitUntil": "networkidle2"})
 
-    log_step("📄 PDF yazdırılıyor, sabırla bekleyin...")
+    browser = await launch(
+        executablePath="/veri/01/chrome",
+        headless=True,
+        dumpio=True,
+        args=[
+            "--no-sandbox",
+            "--disable-gpu",
+            "--disable-dev-shm-usage",
+            "--disable-setuid-sandbox",
+            "--single-process",
+            "--no-zygote"
+        ]
+    )
+
+    log_step("Yeni sayfa açılıyor...")
+    page = await browser.newPage()
+
+    log_step("HTML dosyası yükleniyor...")
+    await page.goto(f"file://{os.path.abspath(html_path)}", {'waitUntil': 'networkidle0'})
+
+    log_step("PDF olarak kaydediliyor...")
     await page.pdf({
-        "path": PDF_PATH,
-        "format": "A4",
-        "landscape": True,
-        "printBackground": True,
-        "margin": {"top": "1cm", "bottom": "1cm", "left": "1cm", "right": "1cm"}
+        'path': 'notebook_output.pdf',
+        'format': 'A4',
+        'printBackground': True,
+        'margin': {
+            'top': '0.5cm',
+            'bottom': '0.5cm',
+            'left': '0.5cm',
+            'right': '0.5cm'
+        },
+        'scale': 0.8,  # Daha çok içerik sığsın
+        'landscape': True  # Geniş çıktı için
     })
 
+    log_step("Tarayıcı kapatılıyor...")
     await browser.close()
-    log_step(f"✅ PDF oluşturuldu: {PDF_PATH}")
+    log_step("PDF oluşturma tamamlandı: notebook_output.pdf")
 
-# 3. Event loop sorunu çöz
-def start_pdf_conversion():
-    try:
-        asyncio.get_running_loop()
+# Event loop sorunu yaşamamak için ayrı subprocess başlat
+log_step("PDF dönüştürme işlemi başlatılıyor...")
+try:
+    loop = asyncio.get_event_loop()
+    if loop.is_running():
+        import nest_asyncio
         nest_asyncio.apply()
-    except RuntimeError:
-        pass
-    asyncio.run(convert_html_to_pdf())
-
-# Ana çalışma
-if __name__ == "__main__":
-    start_time = time.time()
-    try:
-        convert_notebook_to_html()
-        start_pdf_conversion()
-        elapsed = time.time() - start_time
-        log_step(f"🎉 Tamamlandı! Toplam süre: {round(elapsed, 2)} saniye")
-    except Exception as e:
-        log_step(f"⛔ HATA: {str(e)}")
+    loop.run_until_complete(export_pdf())
+except Exception as e:
+    log_step(f"HATA: {e}")
