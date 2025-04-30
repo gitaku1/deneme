@@ -7,6 +7,7 @@ from pyppeteer import launch
 NOTEBOOK_PATH = "notebook_adi.ipynb"
 HTML_PATH = "notebook.html"
 PDF_PATH = "notebook.pdf"
+CHROME_PATH = "/veri/01/chrome"  # Yerel Chromium path'i
 
 # HTML çıktısı oluştur
 def convert_notebook_to_html():
@@ -17,7 +18,7 @@ def convert_notebook_to_html():
     html_exporter = HTMLExporter()
     html_data, _ = html_exporter.from_notebook_node(nb_node)
 
-    # Gelişmiş yazdırma CSS’i
+    # Yazdırma dostu CSS
     custom_css = """
     <style>
     @media print {
@@ -72,9 +73,13 @@ def convert_notebook_to_html():
     with open(HTML_PATH, "w", encoding="utf-8") as f:
         f.write(html_data)
 
-# HTML’yi PDF’e dönüştür (Chrome motoruyla)
+# HTML’yi PDF’e dönüştür
 async def convert_html_to_pdf():
-    browser = await launch(headless=True, args=["--no-sandbox"])
+    browser = await launch(
+        headless=True,
+        executablePath=CHROME_PATH,
+        args=["--no-sandbox", "--disable-setuid-sandbox"]
+    )
     page = await browser.newPage()
     await page.goto(f"file://{HTML_PATH}", {"waitUntil": "networkidle0"})
     await page.pdf({
@@ -97,11 +102,10 @@ def main():
     convert_notebook_to_html()
 
     print("PDF'e dönüştürülüyor...")
-    nest_asyncio.apply()  # Aktif event loop'a izin ver
+    nest_asyncio.apply()
     asyncio.get_event_loop().run_until_complete(convert_html_to_pdf())
 
     print(f"✅ PDF başarıyla oluşturuldu: {PDF_PATH}")
 
-# Kod başlatıcı
 if __name__ == "__main__":
     main()
