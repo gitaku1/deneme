@@ -1,4 +1,5 @@
 import asyncio
+import nest_asyncio
 import nbformat
 from nbconvert import HTMLExporter
 from pyppeteer import launch
@@ -86,15 +87,21 @@ async def convert_html_to_pdf():
             "left": "5mm",
             "right": "5mm"
         },
-        "scale": 0.8  # Gerekirse düşür: 0.75 veya 0.7 gibi
+        "scale": 0.75
     })
     await browser.close()
 
 # Çalıştır
-if __name__ == "__main__":
+def main():
     print("HTML dönüştürülüyor...")
     convert_notebook_to_html()
 
     print("PDF'e dönüştürülüyor...")
+    nest_asyncio.apply()  # Aktif event loop'a izin ver
     asyncio.get_event_loop().run_until_complete(convert_html_to_pdf())
+
     print(f"✅ PDF başarıyla oluşturuldu: {PDF_PATH}")
+
+# Kod başlatıcı
+if __name__ == "__main__":
+    main()
