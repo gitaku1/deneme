@@ -2,7 +2,7 @@ import asyncio
 import nest_asyncio
 import nbformat
 from nbconvert import HTMLExporter
-from pyppeteer import launch
+from pyppeteer import launch, errors as pyppeteer_errors
 
 NOTEBOOK_PATH = "notebook_adi.ipynb"
 HTML_PATH = "notebook.html"
@@ -75,37 +75,56 @@ def convert_notebook_to_html():
 
 # HTML’yi PDF’e dönüştür
 async def convert_html_to_pdf():
-    browser = await launch(
-        headless=True,
-        executablePath=CHROME_PATH,
-        args=["--no-sandbox", "--disable-setuid-sandbox"]
-    )
-    page = await browser.newPage()
-    await page.goto(f"file://{HTML_PATH}", {"waitUntil": "networkidle0"})
-    await page.pdf({
-        "path": PDF_PATH,
-        "format": "A4",
-        "printBackground": True,
-        "margin": {
-            "top": "10mm",
-            "bottom": "10mm",
-            "left": "5mm",
-            "right": "5mm"
-        },
-        "scale": 0.75
-    })
-    await browser.close()
+    try:
+        print("✅ Chromium başlatılıyor...")
+        browser = await launch(
+            headless=True,
+            executablePath=CHROME_PATH,
+            args=["--no-sandbox", "--disable-setuid-sandbox"]
+        )
+        page = await browser.newPage()
+
+        print("🔄 Sayfa yükleniyor...")
+        await asyncio.wait_for(
+            page.goto(f"file://{HTML_PATH}", {"waitUntil": "networkidle0"}),
+            timeout=60
+        )
+
+        print("📄 PDF oluşturuluyor...")
+        await asyncio.wait_for(
+            page.pdf({
+                "path": PDF_PATH,
+                "format": "A4",
+                "printBackground": True,
+                "margin": {
+                    "top": "10mm",
+                    "bottom": "10mm",
+                    "left": "5mm",
+                    "right": "5mm"
+                },
+                "scale": 0.75
+            }),
+            timeout=60
+        )
+
+        print("✅ PDF başarıyla oluşturuldu.")
+        await browser.close()
+
+    except asyncio.TimeoutError:
+        print("⛔ HATA: İşlem zaman aşımına uğradı! Sayfa yükleme ya da PDF oluşturma çok uzun sürdü.")
+    except pyppeteer_errors.BrowserError as e:
+        print(f"⛔ Chromium başlatılamadı: {e}")
+    except Exception as e:
+        print(f"⛔ Beklenmeyen hata oluştu: {e}")
 
 # Çalıştır
 def main():
-    print("HTML dönüştürülüyor...")
+    print("📄 HTML dönüştürme başlıyor...")
     convert_notebook_to_html()
 
-    print("PDF'e dönüştürülüyor...")
+    print("📦 PDF'e dönüştürme başlıyor...")
     nest_asyncio.apply()
     asyncio.get_event_loop().run_until_complete(convert_html_to_pdf())
-
-    print(f"✅ PDF başarıyla oluşturuldu: {PDF_PATH}")
 
 if __name__ == "__main__":
     main()
