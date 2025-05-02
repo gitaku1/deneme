@@ -1,109 +1,49 @@
+import os
 import asyncio
 from pyppeteer import launch
-from nbconvert import HTMLExporter
-import nbformat
-import os
-import time
 
-def log_step(message):
-    print(f"[{time.strftime('%H:%M:%S')}] {message}")
+# İndirilecek dosya adları listesi
+notebook_names = [
+    "notebook1.ipynb",
+    "notebook2.ipynb",
+    "notebook3.ipynb"  # Gerekirse daha fazla dosya ekleyin
+]
 
-# Notebook dosyasını yükleyin
-log_step("Notebook yükleniyor...")
-with open("notebook_adi.ipynb", "r", encoding="utf-8") as f:
-    nb_content = f.read()
+async def download_notebooks():
+    # JupyterHub adresinizi belirtin
+    jupyterhub_url = "http://localhost:8000/tree/YOUR_DIRECTORY_PATH"
 
-# Notebook içeriğini HTML formatına dönüştürün
-log_step("Notebook HTML'e dönüştürülüyor...")
-nb_node = nbformat.reads(nb_content, as_version=4)
-html_exporter = HTMLExporter()
-html_exporter.exclude_input_prompt = True
-html_exporter.exclude_output_prompt = True
-
-# CSS stilleri: tüm içerik PDF'e yatay sığsın diye
-extra_css = """
-<style>
-body {
-    font-size: 10px;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-    overflow-x: auto;
-}
-table, pre, code, .output_area {
-    font-size: 10px !important;
-    white-space: pre-wrap !important;
-    word-wrap: break-word !important;
-}
-.output_area {
-    overflow-x: auto;
-    max-width: 100%;
-}
-div.output_scroll {
-    overflow-x: auto !important;
-    max-width: 100% !important;
-}
-</style>
-"""
-
-resources = {"inlining": True}
-html_data, _ = html_exporter.from_notebook_node(nb_node, resources=resources)
-html_data = html_data.replace("</head>", extra_css + "</head>")
-
-html_path = "notebook_rendered.html"
-log_step(f"HTML dosyası {html_path} olarak kaydediliyor...")
-with open(html_path, "w", encoding="utf-8") as f:
-    f.write(html_data)
-
-# PDF'e dönüştürme
-async def export_pdf():
-    log_step("Chrome başlatılıyor...")
-
+    # Pyppeteer ile Chrome başlatılıyor
     browser = await launch(
-        executablePath="/veri/01/chrome",
+        executablePath='/veri01/chrome-linux/chrome',  # Chrome’un sunucudaki yolu
         headless=True,
-        dumpio=True,
-        args=[
-            "--no-sandbox",
-            "--disable-gpu",
-            "--disable-dev-shm-usage",
-            "--disable-setuid-sandbox",
-            "--single-process",
-            "--no-zygote"
-        ]
+        args=['--no-sandbox']
     )
-
-    log_step("Yeni sayfa açılıyor...")
+    
     page = await browser.newPage()
+    await page.goto(jupyterhub_url)  # Doğrudan dosya dizinine gidiyoruz
 
-    log_step("HTML dosyası yükleniyor...")
-    await page.goto(f"file://{os.path.abspath(html_path)}", {'waitUntil': 'networkidle0'})
+    # Her bir .ipynb dosyasını indirmek için döngü oluşturuyoruz
+    for notebook in notebook_names:
+        file_xpath = f'//a[contains(@href, "{notebook}")]'  # Notebook dosyasının XPath'ini bul
+        await page.waitForXPath(file_xpath)
+        
+        # Dosyanın bağlantısına tıklayarak açıyoruz
+        elements = await page.xpath(file_xpath)
+        if elements:
+            await elements[0].click()
+            await page.waitForNavigation()
 
-    log_step("PDF olarak kaydediliyor...")
-    await page.pdf({
-        'path': 'notebook_output.pdf',
-        'format': 'A4',
-        'printBackground': True,
-        'margin': {
-            'top': '0.5cm',
-            'bottom': '0.5cm',
-            'left': '0.5cm',
-            'right': '0.5cm'
-        },
-        'scale': 0.8,  # Daha çok içerik sığsın
-        'landscape': True  # Geniş çıktı için
-    })
+            # Notebook'u kaydediyoruz ve indiriyoruz
+            await page.click('button[data-jupyter-action="save-notebook"]')
+            await asyncio.sleep(2)  # Bekleme süresi ekleyerek güvenlik sağlıyoruz
+            await page.click('button[data-jupyter-action="download-notebook"]')
+            await asyncio.sleep(5)
 
-    log_step("Tarayıcı kapatılıyor...")
+            print(f"{notebook} başarıyla indirildi!")
+            await page.goBack()  # Sonraki dosyaya geçmek için geri dön
+
     await browser.close()
-    log_step("PDF oluşturma tamamlandı: notebook_output.pdf")
 
-# Event loop sorunu yaşamamak için ayrı subprocess başlat
-log_step("PDF dönüştürme işlemi başlatılıyor...")
-try:
-    loop = asyncio.get_event_loop()
-    if loop.is_running():
-        import nest_asyncio
-        nest_asyncio.apply()
-    loop.run_until_complete(export_pdf())
-except Exception as e:
-    log_step(f"HATA: {e}")
+# Asenkron işlemi başlat
+asyncio.get_event_loop().run_until_complete(download_notebooks())
