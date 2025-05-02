@@ -6,52 +6,35 @@ from pyppeteer import launch
 # Jupyter Notebook’un asenkron döngüsüne uyum sağla
 nest_asyncio.apply()
 
-# 📂 **İndirilecek dosya dizini**
-jupyterhub_url = "http://localhost:8000/tree/YOUR_DIRECTORY_PATH"
+# 📂 Kullanıcıdan dizinleri al
+IPYNB_PATH = "/veri01/ipynbdirectory/notebook.ipynb"  # Kullanıcının belirttiği `.ipynb` dosyası
+CHROME_PATH = "/veri01/chrome-linux/chrome"  # Kullanıcının belirttiği Chrome dizini
+PDF_OUTPUT_PATH = "/veri01/ipynbdirectory/notebook.pdf"  # Çıkacak PDF dosyası
 
-# 🎯 **İndirilecek dosya listesi**
-notebook_names = [
-    "notebook1.ipynb",
-    "notebook2.ipynb",
-    "notebook3.ipynb"  # Daha fazla dosya ekleyebilirsiniz
-]
+# `.ipynb` dosyasını PDF formatına dönüştür
+def convert_ipynb_to_pdf():
+    os.system(f"jupyter nbconvert --to pdf {IPYNB_PATH} --output {PDF_OUTPUT_PATH}")
 
-async def download_notebooks():
+async def download_pdf():
     # 🚀 **Chrome başlatılıyor**
     browser = await launch(
-        executablePath='/veri01/chrome-linux/chrome',  # Sunucudaki Chrome’un yolu
+        executablePath=CHROME_PATH,  
         headless=True,
         args=['--no-sandbox']
     )
 
     page = await browser.newPage()
-    await page.goto(jupyterhub_url)  # Ana dizine git
 
-    # 🔄 **Her dosya için indirme işlemi**
-    for notebook in notebook_names:
-        file_xpath = f'//a[contains(@href, "{notebook}")]'
-        await page.waitForXPath(file_xpath)
-
-        elements = await page.xpath(file_xpath)
-        if elements:
-            await elements[0].click()  # 📂 Dosyayı aç
-            await page.waitForNavigation()
-
-            # 💾 Notebook'u kaydet
-            await page.click('button[data-jupyter-action="save-notebook"]')
-            await asyncio.sleep(2)
-
-            # ⬇️ Dosyayı indir
-            await page.click('button[data-jupyter-action="download-notebook"]')
-            await asyncio.sleep(5)
-
-            print(f"{notebook} başarıyla indirildi!")
-            await page.goBack()  # Bir sonraki dosya için geri dön
+    # 📂 PDF dosyasını aç ve indir
+    await page.goto(f"file://{PDF_OUTPUT_PATH}")
+    await asyncio.sleep(2)
+    print(f"📥 PDF başarıyla indirildi: {PDF_OUTPUT_PATH}")
 
     await browser.close()
 
 # ✅ **Kodun Jupyter ile uyumlu çalışmasını sağla**
 async def main():
-    await download_notebooks()
+    convert_ipynb_to_pdf()  # 📝 `.ipynb` dosyasını PDF'ye dönüştür
+    await download_pdf()  # ⬇️ PDF'yi indir
 
 asyncio.run(main())  # Yeni bir asenkron döngü başlat
