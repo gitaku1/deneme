@@ -3,52 +3,55 @@ import nbformat
 from nbconvert import HTMLExporter
 from weasyprint import HTML
 
-# Ayarlar
+# Dosya yolları
 IPYNB_PATH = "/veri01/ipynbdirectory/notebook.ipynb"
 PDF_OUTPUT_PATH = "/veri01/ipynbdirectory/notebook.pdf"
 
-# Küçük ve sığdırılmış özel CSS
+# Daha da gelişmiş CSS
 CUSTOM_CSS = """
 <style>
 body {
     font-family: "DejaVu Sans", sans-serif;
-    font-size: 9pt;
+    font-size: 8pt;
     margin: 0;
     padding: 0;
 }
-.output_area pre {
+pre, code {
+    font-size: 6pt !important;
     white-space: pre-wrap !important;
     word-wrap: break-word;
-    overflow-x: auto;
-    font-size: 7pt;
-    max-width: 100%;
+    overflow: visible !important;
 }
-table {
-    width: 100% !important;
-    table-layout: fixed;
-    word-wrap: break-word;
-    font-size: 7pt;
-}
-td, th {
-    padding: 2px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-code {
-    font-size: 7pt;
-    word-break: break-word;
+.output_area pre, .output_area div {
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    overflow-x: visible !important;
+    font-size: 6pt !important;
+    max-width: 100% !important;
 }
 div.output_scroll {
     overflow: visible !important;
     max-height: none !important;
 }
 .output_wrapper, .output {
-    page-break-inside: avoid;
+    page-break-inside: avoid !important;
+}
+table {
+    width: 100% !important;
+    table-layout: fixed !important;
+    word-wrap: break-word !important;
+    font-size: 6pt !important;
+}
+td, th {
+    padding: 2px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    word-break: break-word !important;
 }
 </style>
 """
 
-def convert_full_notebook():
+def convert_ipynb_to_pdf():
     print("📘 Notebook okunuyor...")
     with open(IPYNB_PATH, "r", encoding="utf-8") as f:
         nb = nbformat.read(f, as_version=4)
@@ -59,11 +62,10 @@ def convert_full_notebook():
     html_exporter.exclude_output_prompt = True
     body, _ = html_exporter.from_notebook_node(nb)
 
-    # CSS ekle
     full_html = CUSTOM_CSS + body
 
-    print("📄 PDF oluşturuluyor, bu işlem birkaç dakika sürebilir...")
+    print("📄 PDF oluşturuluyor, tüm çıktı alanları küçültülmüş şekilde ekleniyor...")
     HTML(string=full_html).write_pdf(PDF_OUTPUT_PATH)
-    print(f"✅ PDF başarıyla oluşturuldu: {PDF_OUTPUT_PATH}")
+    print(f"✅ PDF oluşturuldu: {PDF_OUTPUT_PATH}")
 
-convert_full_notebook()
+convert_ipynb_to_pdf()
