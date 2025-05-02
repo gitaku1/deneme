@@ -1,85 +1,114 @@
 import os
 import nbformat
-from bs4 import BeautifulSoup
 from nbconvert import HTMLExporter
-from weasyprint import HTML, CSS
+from weasyprint import HTML
+from bs4 import BeautifulSoup
 
-# PDF için çıkış yolu
-IPYNB_PATH = "dosya.ipynb"
-PDF_PATH = "output.pdf"
+IPYNB_PATH = "/veri01/ipynbdirectory/notebook.ipynb"
+PDF_OUTPUT_PATH = "/veri01/ipynbdirectory/only_outputs_cleaned.pdf"
 
-# HTML çıktısını üret
-with open(IPYNB_PATH, "r", encoding="utf-8") as f:
-    notebook = nbformat.read(f, as_version=4)
-
-# Sadece çıktı hücrelerini al (kodları değil)
-for cell in notebook["cells"]:
-    if cell["cell_type"] == "code":
-        cell["source"] = ""
-
-# HTML export
-html_exporter = HTMLExporter()
-html_exporter.template_name = "lab"  # JupyterLab stili
-(body, resources) = html_exporter.from_notebook_node(notebook)
-
-# BeautifulSoup ile işleme
-soup = BeautifulSoup(body, "html.parser")
-
-# Sayfanın genel yazı boyutu ve görünümünü küçült
-style_tag = soup.new_tag("style")
-style_tag.string = """
-body {
-    font-size: 9pt !important;
-    margin: 10mm;
-}
-.output {
-    font-size: 7.5pt !important;
-    overflow-x: auto !important;
-    word-wrap: break-word !important;
-    max-width: 100%;
-}
-.output pre {
-    white-space: pre-wrap !important;
-    font-size: 7.5pt !important;
-}
-table {
-    font-size: 7pt;
-    table-layout: auto !important;
-    word-break: break-word !important;
-    border-collapse: collapse;
-    width: 100%;
-}
-th, td {
-    padding: 2px;
-    border: 1px solid #ddd;
-}
+BASE_CSS = """
+<style>
 @page {
     size: A4 portrait;
-    margin: 10mm;
+    margin: 1cm;
 }
+@page rotated {
+    size: A4 landscape;
+    margin: 1cm;
+}
+body {
+    font-family: "DejaVu Sans", sans-serif;
+    font-size: 9pt;
+}
+pre, code {
+    font-size: 8pt !important;
+    white-space: pre-wrap !important;
+    word-wrap: break-word;
+}
+.output_area pre, .output_area div {
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    overflow-x: auto !important;
+}
+.output_scroll {
+    overflow-x: auto !important;
+    max-height: none !important;
+}
+.output_wrapper, .output {
+    page-break-inside: avoid !important;
+}
+.table-wide {
+    page: rotated;
+    font-size: 7pt;
+    width: 100%;
+    table-layout: auto;
+    display: block;
+    overflow-x: auto;
+}
+table {
+    width: 100%;
+    word-wrap: break-word;
+    font-size: 8pt;
+    table-layout: auto;
+}
+td, th {
+    padding: 2px;
+    text-overflow: clip;
+    overflow-wrap: break-word;
+}
+</style>
 """
-soup.head.append(style_tag)
 
-# Uzun tabloları yatay göster (çok genişse)
-for table in soup.find_all("table"):
-    table["style"] = "font-size:7pt; width: 100%; table-layout:auto;"
+LONG_OUTPUT_STYLE = 'font-size:6pt; line-height:1.1em;'
+LONG_OUTPUT_CHAR_LIMIT = 5000
+TABLE_COLUMN_LIMIT = 8
 
-# Output hücrelerini sınırlı genişlikte tutmak için div ekle
-for div in soup.find_all("div", class_="output"):
-    div["style"] = "max-width: 100%; overflow-x: auto; font-size: 7pt;"
+def convert_outputs_only_clean():
+    print("📘 Notebook okunuyor...")
+    with open(IPYNB_PATH, "r", encoding="utf-8") as f:
+        nb = nbformat.read(f, as_version=4)
 
-# Boş tag'leri temizle
-for tag in soup.find_all():
-    if not tag.get_text(strip=True) and not (tag.name and tag.name.startswith("img")):
-        tag.decompose()
+    html_exporter = HTMLExporter()
+    html_exporter.exclude_input = True
+    html_exporter.exclude_input_prompt = True
+    html_exporter.exclude_output_prompt = True
+    body, _ = html_exporter.from_notebook_node(nb)
 
-# HTML’yi PDF’ye çevir
-full_html = str(soup)
+    soup = BeautifulSoup(body, "html.parser")
 
-HTML(string=full_html).write_pdf(
-    PDF_PATH,
-    stylesheets=[CSS(string='@page { size: A4; margin: 10mm; }')],
-    zoom=1.0
-)
+    seen_outputs = set()
+    cleaned_outputs = []
 
-print(f"PDF başarıyla oluşturuldu: {PDF_PATH}")
+    print("🔍 Çıktılar analiz ediliyor...")
+    for output_div in soup.find_all("div", class_="output_area"):
+        text = output_div.get_text(strip=True)
+        if not text or text in seen_outputs:
+            output_div.decompose()  # Boş veya tekrar eden output’u sil
+            continue
+        seen_outputs.add(text)
+
+        if len(text) > LONG_OUTPUT_CHAR_LIMIT:
+            for tag in output_div.find_all(["pre", "code", "div"]):
+                tag['style'] = tag.get('style', '') + LONG_OUTPUT_STYLE
+
+        cleaned_outputs.append(output_div)
+
+    for table in soup.find_all("table"):
+        header = table.find("tr")
+        if header:
+            columns = header.find_all(["td", "th"])
+            if len(columns) >= TABLE_COLUMN_LIMIT:
+                table['class'] = table.get('class', []) + ['table-wide']
+
+    # Gereksiz boş alanları da temizle (güncellenmiş hata korumalı satır)
+    for tag in soup.find_all():
+        if not tag.get_text(strip=True) and not (tag.name and tag.name.startswith('img')):
+            tag.decompose()
+
+    print("📄 Temizlenmiş PDF oluşturuluyor...")
+    final_html = BASE_CSS + str(soup)
+    HTML(string=final_html).write_pdf(PDF_OUTPUT_PATH)
+    print(f"✅ PDF başarıyla oluşturuldu: {PDF_OUTPUT_PATH}")
+
+convert_outputs_only_clean()
