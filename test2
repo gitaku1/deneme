@@ -2,31 +2,30 @@ import os
 import nbformat
 from nbconvert import HTMLExporter
 from weasyprint import HTML
+from bs4 import BeautifulSoup
 
 # Dosya yolları
 IPYNB_PATH = "/veri01/ipynbdirectory/notebook.ipynb"
 PDF_OUTPUT_PATH = "/veri01/ipynbdirectory/notebook.pdf"
 
-# Daha da gelişmiş CSS
-CUSTOM_CSS = """
+# Genel stil (orta büyüklükte)
+BASE_CSS = """
 <style>
 body {
     font-family: "DejaVu Sans", sans-serif;
-    font-size: 8pt;
+    font-size: 9pt;
     margin: 0;
     padding: 0;
 }
 pre, code {
-    font-size: 6pt !important;
+    font-size: 8pt !important;
     white-space: pre-wrap !important;
     word-wrap: break-word;
-    overflow: visible !important;
 }
 .output_area pre, .output_area div {
     white-space: pre-wrap !important;
     word-break: break-word !important;
     overflow-x: visible !important;
-    font-size: 6pt !important;
     max-width: 100% !important;
 }
 div.output_scroll {
@@ -40,7 +39,7 @@ table {
     width: 100% !important;
     table-layout: fixed !important;
     word-wrap: break-word !important;
-    font-size: 6pt !important;
+    font-size: 7pt;
 }
 td, th {
     padding: 2px !important;
@@ -50,6 +49,12 @@ td, th {
 }
 </style>
 """
+
+# Çok uzun output'lara özel stil
+LONG_OUTPUT_STYLE = 'font-size:6pt; line-height:1.1em;'
+
+# Çok uzun kabul edilen karakter limiti
+LONG_OUTPUT_CHAR_LIMIT = 5000
 
 def convert_ipynb_to_pdf():
     print("📘 Notebook okunuyor...")
@@ -62,10 +67,20 @@ def convert_ipynb_to_pdf():
     html_exporter.exclude_output_prompt = True
     body, _ = html_exporter.from_notebook_node(nb)
 
-    full_html = CUSTOM_CSS + body
+    print("🔍 HTML içinde çok uzun çıktılar tespit ediliyor...")
+    soup = BeautifulSoup(body, "html.parser")
+    outputs = soup.find_all("div", class_="output_area")
 
-    print("📄 PDF oluşturuluyor, tüm çıktı alanları küçültülmüş şekilde ekleniyor...")
+    for output in outputs:
+        text = output.get_text()
+        if len(text) > LONG_OUTPUT_CHAR_LIMIT:
+            for tag in output.find_all(["pre", "code", "div"]):
+                tag['style'] = tag.get('style', '') + LONG_OUTPUT_STYLE
+
+    full_html = BASE_CSS + str(soup)
+
+    print("📄 PDF oluşturuluyor...")
     HTML(string=full_html).write_pdf(PDF_OUTPUT_PATH)
-    print(f"✅ PDF oluşturuldu: {PDF_OUTPUT_PATH}")
+    print(f"✅ PDF başarıyla oluşturuldu: {PDF_OUTPUT_PATH}")
 
 convert_ipynb_to_pdf()
