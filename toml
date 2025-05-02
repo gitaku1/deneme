@@ -4,14 +4,17 @@ from nbconvert import HTMLExporter
 from weasyprint import HTML
 from bs4 import BeautifulSoup
 
-# Dosya yolları
 IPYNB_PATH = "/veri01/ipynbdirectory/notebook.ipynb"
 PDF_OUTPUT_PATH = "/veri01/ipynbdirectory/notebook.pdf"
 
-# Sayfa yapısı ve stiller (landscape + tablo optimizasyonu)
+# CSS tanımı
 BASE_CSS = """
 <style>
 @page {
+    size: A4 portrait;
+    margin: 1cm;
+}
+@page rotated {
     size: A4 landscape;
     margin: 1cm;
 }
@@ -37,26 +40,32 @@ pre, code {
     page-break-inside: avoid !important;
 }
 
-/* Tabloları sığdırmak için özel stil */
-table {
-    width: 100% !important;
-    table-layout: auto !important;
-    word-wrap: break-word !important;
+/* Geniş tablo sınıfı */
+.table-wide {
+    page: rotated;
     font-size: 7pt;
-    overflow-x: auto !important;
+    width: 100%;
+    table-layout: auto;
     display: block;
+    overflow-x: auto;
+}
+table {
+    width: 100%;
+    word-wrap: break-word;
+    font-size: 8pt;
+    table-layout: auto;
 }
 td, th {
-    padding: 3px !important;
-    text-overflow: clip !important;
-    overflow-wrap: break-word !important;
+    padding: 2px;
+    text-overflow: clip;
+    overflow-wrap: break-word;
 }
 </style>
 """
 
-# Çok uzun output'lar için özel stil
 LONG_OUTPUT_STYLE = 'font-size:6pt; line-height:1.1em;'
 LONG_OUTPUT_CHAR_LIMIT = 5000
+TABLE_COLUMN_LIMIT = 8  # Kolon sayısı bu limiti aşarsa yatay sayfa
 
 def convert_ipynb_to_pdf():
     print("📘 Notebook okunuyor...")
@@ -69,23 +78,22 @@ def convert_ipynb_to_pdf():
     html_exporter.exclude_output_prompt = True
     body, _ = html_exporter.from_notebook_node(nb)
 
-    print("🔍 HTML içinde çıktı uzunlukları analiz ediliyor...")
     soup = BeautifulSoup(body, "html.parser")
-    outputs = soup.find_all("div", class_="output_area")
 
-    for output in outputs:
+    print("🔍 Output uzunlukları ve tablolar analiz ediliyor...")
+    for output in soup.find_all("div", class_="output_area"):
         text = output.get_text()
         if len(text) > LONG_OUTPUT_CHAR_LIMIT:
             for tag in output.find_all(["pre", "code", "div"]):
                 tag['style'] = tag.get('style', '') + LONG_OUTPUT_STYLE
 
-    # Tüm tablo ve code-block’ların genişlik taşmalarını engelle
     for table in soup.find_all("table"):
-        table['style'] = table.get('style', '') + 'width:100%; display:block; overflow-x:auto;'
+        columns = table.find_all("tr")[0].find_all(["td", "th"]) if table.find("tr") else []
+        if len(columns) >= TABLE_COLUMN_LIMIT:
+            table['class'] = table.get('class', []) + ['table-wide']
 
+    print("📄 PDF oluşturuluyor...")
     full_html = BASE_CSS + str(soup)
-
-    print("📄 PDF oluşturuluyor (landscape)...")
     HTML(string=full_html).write_pdf(PDF_OUTPUT_PATH)
     print(f"✅ PDF başarıyla oluşturuldu: {PDF_OUTPUT_PATH}")
 
