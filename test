@@ -1,6 +1,10 @@
 import os
 import asyncio
+import nest_asyncio
 from pyppeteer import launch
+
+# Jupyter Notebook uyumluluğunu sağla
+nest_asyncio.apply()
 
 # İndirilecek dosya adları listesi
 notebook_names = [
@@ -10,40 +14,36 @@ notebook_names = [
 ]
 
 async def download_notebooks():
-    # JupyterHub adresinizi belirtin
     jupyterhub_url = "http://localhost:8000/tree/YOUR_DIRECTORY_PATH"
 
     # Pyppeteer ile Chrome başlatılıyor
     browser = await launch(
-        executablePath='/veri01/chrome-linux/chrome',  # Chrome’un sunucudaki yolu
+        executablePath='/veri01/chrome-linux/chrome',  
         headless=True,
         args=['--no-sandbox']
     )
     
     page = await browser.newPage()
-    await page.goto(jupyterhub_url)  # Doğrudan dosya dizinine gidiyoruz
+    await page.goto(jupyterhub_url)
 
-    # Her bir .ipynb dosyasını indirmek için döngü oluşturuyoruz
     for notebook in notebook_names:
-        file_xpath = f'//a[contains(@href, "{notebook}")]'  # Notebook dosyasının XPath'ini bul
+        file_xpath = f'//a[contains(@href, "{notebook}")]'
         await page.waitForXPath(file_xpath)
         
-        # Dosyanın bağlantısına tıklayarak açıyoruz
         elements = await page.xpath(file_xpath)
         if elements:
             await elements[0].click()
             await page.waitForNavigation()
 
-            # Notebook'u kaydediyoruz ve indiriyoruz
             await page.click('button[data-jupyter-action="save-notebook"]')
-            await asyncio.sleep(2)  # Bekleme süresi ekleyerek güvenlik sağlıyoruz
+            await asyncio.sleep(2)
             await page.click('button[data-jupyter-action="download-notebook"]')
             await asyncio.sleep(5)
 
             print(f"{notebook} başarıyla indirildi!")
-            await page.goBack()  # Sonraki dosyaya geçmek için geri dön
+            await page.goBack()
 
     await browser.close()
 
-# Asenkron işlemi başlat
-asyncio.get_event_loop().run_until_complete(download_notebooks())
+# Jupyter ile uyumlu şekilde çalıştır
+asyncio.create_task(download_notebooks())
