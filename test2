@@ -1,86 +1,86 @@
+import asyncio
 import os
-import nbformat
+from pyppeteer import launch
 from nbconvert import HTMLExporter
-from weasyprint import HTML
-from bs4 import BeautifulSoup
+import nbformat
 
-# Dosya yolları
-IPYNB_PATH = "/veri01/ipynbdirectory/notebook.ipynb"
-PDF_OUTPUT_PATH = "/veri01/ipynbdirectory/notebook.pdf"
+# 1. Girdi defteri (senin notebook dosyan)
+notebook_path = "defterim.ipynb"  # kendi dosya adını buraya yaz
+html_path = "gecici.html"
+pdf_path = "cikti.pdf"
+chrome_path = "/veri01/chrome-linux/chrome"  # senin Chrome yolun
 
-# Genel stil (orta büyüklükte)
-BASE_CSS = """
+# 2. Notebook'u HTML'e dönüştür
+print("Notebook HTML'e dönüştürülüyor...")
+with open(notebook_path) as f:
+    nb_node = nbformat.read(f, as_version=4)
+
+html_exporter = HTMLExporter()
+body, _ = html_exporter.from_notebook_node(nb_node)
+
+# 3. Geniş tablolar için CSS ekle (scroll yerine genişlik kısıtlamasını kaldırıyoruz)
+extra_css = """
 <style>
-body {
-    font-family: "DejaVu Sans", sans-serif;
-    font-size: 9pt;
-    margin: 0;
-    padding: 0;
-}
-pre, code {
-    font-size: 8pt !important;
-    white-space: pre-wrap !important;
+/* Tüm hücreleri ve tabloları düzgünce sayfaya sığdır */
+.output pre, .output_area pre {
+    white-space: pre-wrap;
     word-wrap: break-word;
 }
-.output_area pre, .output_area div {
-    white-space: pre-wrap !important;
-    word-break: break-word !important;
-    overflow-x: visible !important;
-    max-width: 100% !important;
+
+/* Geniş tabloları sayfa genişliğine zorla */
+.output_area table {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+    font-size: 10pt;
+    word-break: break-word;
 }
-div.output_scroll {
-    overflow: visible !important;
-    max-height: none !important;
-}
-.output_wrapper, .output {
-    page-break-inside: avoid !important;
-}
-table {
-    width: 100% !important;
-    table-layout: fixed !important;
-    word-wrap: break-word !important;
-    font-size: 7pt;
-}
-td, th {
-    padding: 2px !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-    word-break: break-word !important;
+
+/* Kod hücreleri ve yazılar için yazı boyutunu azalt */
+div.cell {
+    font-size: 10pt;
 }
 </style>
 """
 
-# Çok uzun output'lara özel stil
-LONG_OUTPUT_STYLE = 'font-size:6pt; line-height:1.1em;'
+body = body.replace('</head>', extra_css + '</head>')
 
-# Çok uzun kabul edilen karakter limiti
-LONG_OUTPUT_CHAR_LIMIT = 5000
+with open(html_path, 'w', encoding='utf-8') as f:
+    f.write(body)
 
-def convert_ipynb_to_pdf():
-    print("📘 Notebook okunuyor...")
-    with open(IPYNB_PATH, "r", encoding="utf-8") as f:
-        nb = nbformat.read(f, as_version=4)
+print(f"HTML dosyası oluşturuldu: {html_path}")
 
-    print("💻 HTML'e dönüştürülüyor...")
-    html_exporter = HTMLExporter()
-    html_exporter.exclude_input_prompt = True
-    html_exporter.exclude_output_prompt = True
-    body, _ = html_exporter.from_notebook_node(nb)
+# 4. PDF'e dönüştürme fonksiyonu
+async def html_to_pdf():
+    print("Chrome başlatılıyor...")
+    browser = await launch(
+        executablePath=chrome_path,
+        headless=True,
+        args=["--no-sandbox"]
+    )
+    page = await browser.newPage()
 
-    print("🔍 HTML içinde çok uzun çıktılar tespit ediliyor...")
-    soup = BeautifulSoup(body, "html.parser")
-    outputs = soup.find_all("div", class_="output_area")
+    file_url = f'file://{os.path.abspath(html_path)}'
+    print(f"HTML yükleniyor: {file_url}")
+    await page.goto(file_url, {'waitUntil': 'networkidle0'})
 
-    for output in outputs:
-        text = output.get_text()
-        if len(text) > LONG_OUTPUT_CHAR_LIMIT:
-            for tag in output.find_all(["pre", "code", "div"]):
-                tag['style'] = tag.get('style', '') + LONG_OUTPUT_STYLE
+    # PDF oluşturuluyor
+    print("PDF dosyası oluşturuluyor (yatay sayfa)...")
+    await page.pdf({
+        'path': pdf_path,
+        'format': 'A4',
+        'printBackground': True,
+        'landscape': True,  # 🔥 yatay sayfa formatı
+        'scale': 0.9,       # biraz küçülterek sığdır
+        'margin': {
+            'top': '0.5in',
+            'bottom': '0.5in',
+            'left': '0.5in',
+            'right': '0.5in'
+        }
+    })
+    await browser.close()
+    print(f"PDF başarıyla oluşturuldu: {pdf_path}")
 
-    full_html = BASE_CSS + str(soup)
-
-    print("📄 PDF oluşturuluyor...")
-    HTML(string=full_html).write_pdf(PDF_OUTPUT_PATH)
-    print(f"✅ PDF başarıyla oluşturuldu: {PDF_OUTPUT_PATH}")
-
-convert_ipynb_to_pdf()
+# 5. PDF oluştur
+asyncio.get_event_loop().run_until_complete(html_to_pdf())
