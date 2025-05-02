@@ -1,24 +1,86 @@
-import shutil  
 import os
+import nbformat
+from nbconvert import HTMLExporter
+from weasyprint import HTML
+from multiprocessing import Process
+from tempfile import NamedTemporaryFile
 
-# Stanza kaynak dizini
-stanza_dir = os.path.expanduser("~/.stanza")
+# Yolları tanımla
+IPYNB_PATH = "/veri01/ipynbdirectory/notebook.ipynb"
+PDF_OUTPUT_PATH = "/veri01/ipynbdirectory/notebook.pdf"
 
-# Klasörü oluştur (eğer yoksa)
-os.makedirs(stanza_dir, exist_ok=True)
+# Dinamik CSS (sayfaya sığdırma ve fontları optimize etme)
+CUSTOM_CSS = """
+<style>
+body {
+    font-family: "DejaVu Sans", sans-serif;
+    font-size: 10pt;
+    margin: 0;
+    padding: 0;
+}
+.output_area pre {
+    white-space: pre-wrap !important;
+    word-wrap: break-word;
+    overflow-x: auto;
+    font-size: 8pt;
+}
+table {
+    width: 100% !important;
+    table-layout: fixed;
+    word-wrap: break-word;
+    font-size: 8pt;
+}
+td, th {
+    padding: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+code {
+    font-size: 8pt;
+    word-break: break-word;
+}
+div.output_scroll {
+    overflow: visible !important;
+}
+</style>
+"""
 
-# JSON dosyasını doğru dizine kopyala
-shutil.copy("/data01/nltk-data/resources_1.10.0.json", os.path.join(stanza_dir, "resources.json"))
+def generate_pdf():
+    print("[1/4] Notebook yükleniyor...")
+    with open(IPYNB_PATH, "r", encoding="utf-8") as f:
+        nb_content = f.read()
+    
+    nb_node = nbformat.reads(nb_content, as_version=4)
+    html_exporter = HTMLExporter()
+    html_exporter.exclude_input_prompt = True
+    html_exporter.exclude_output_prompt = True
 
-print("Resource dosyası başarıyla taşındı!")
+    print("[2/4] HTML'e dönüştürülüyor...")
+    body, _ = html_exporter.from_notebook_node(nb_node)
+    
+    # Custom CSS ekleniyor
+    full_html = CUSTOM_CSS + body
 
+    print("[3/4] Geçici HTML oluşturuluyor...")
+    with NamedTemporaryFile(suffix=".html", delete=False, mode='w', encoding='utf-8') as tmp_file:
+        tmp_file.write(full_html)
+        tmp_html_path = tmp_file.name
 
-import stanza  
+    print("[4/4] PDF dönüştürülüyor (biraz sürebilir)...")
+    HTML(tmp_html_path).write_pdf(PDF_OUTPUT_PATH)
 
-# İngilizce modeli indir (eğer yoksa)
-stanza.download('en')
+    print(f"✅ PDF başarıyla oluşturuldu: {PDF_OUTPUT_PATH}")
+    os.remove(tmp_html_path)
 
-# Pipeline oluştur ve test et
-nlp = stanza.Pipeline('en')
-print(nlp)
+def run_async_pdf():
+    p = Process(target=generate_pdf)
+    p.start()
+    p.join(timeout=900)  # Maksimum 15 dakika
+    if p.is_alive():
+        print("⛔ Zaman aşımı: PDF üretimi çok uzun sürdü ve durduruldu.")
+        p.terminate()
+    else:
+        print("✅ PDF işlemi tamamlandı.")
 
+# Fonksiyonu çağır
+run_async_pdf()
