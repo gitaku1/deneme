@@ -1,38 +1,104 @@
-import os
 import asyncio
-import nest_asyncio
 from pyppeteer import launch
+from nbconvert import HTMLExporter
+import nbformat
+import os
+import time
+import nest_asyncio
 
-nest_asyncio.apply()
-
+# 📍 Yollar
 IPYNB_PATH = "/veri01/ipynbdirectory/notebook.ipynb"
-HTML_OUTPUT_PATH = "/veri01/ipynbdirectory/notebook.html"
+HTML_PATH = "/veri01/ipynbdirectory/notebook_rendered.html"
 PDF_OUTPUT_PATH = "/veri01/ipynbdirectory/notebook.pdf"
 CHROME_PATH = "/veri01/chrome-linux/chrome"
 
-# `.ipynb` dosyasını HTML'e çevir
-def convert_ipynb_to_html():
-    os.system(f"jupyter nbconvert --to html {IPYNB_PATH} --output {HTML_OUTPUT_PATH}")
+def log_step(msg):
+    print(f"[{time.strftime('%H:%M:%S')}] {msg}")
 
-# HTML'i PDF formatına dönüştür (LaTeX kullanmadan!)
-def convert_html_to_pdf():
-    os.system(f"wkhtmltopdf {HTML_OUTPUT_PATH} {PDF_OUTPUT_PATH}")
+# ✅ 1. Notebook'u yükle
+log_step("Notebook yükleniyor...")
+with open(IPYNB_PATH, "r", encoding="utf-8") as f:
+    nb_node = nbformat.read(f, as_version=4)
 
-async def download_pdf():
-    if not os.path.exists(PDF_OUTPUT_PATH):
-        print("❌ PDF bulunamadı, işlem iptal ediliyor.")
-        return
+# ✅ 2. HTML'e dönüştür
+log_step("Notebook HTML'e dönüştürülüyor...")
+html_exporter = HTMLExporter()
+html_exporter.exclude_input_prompt = True
+html_exporter.exclude_output_prompt = True
 
-    browser = await launch(executablePath=CHROME_PATH, headless=True, args=['--no-sandbox'])
+# ✅ 3. CSS Ekle: geniş kolonlar, çıktılar, yazdırmaya uygun
+custom_css = """
+<style>
+body {
+    font-size: 10px;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    overflow-x: auto;
+}
+.output_area, table, pre, code {
+    font-size: 10px !important;
+    white-space: pre-wrap !important;
+    word-wrap: break-word !important;
+    overflow-x: auto !important;
+    max-width: 100% !important;
+}
+div.output_scroll {
+    overflow-x: auto !important;
+    max-width: 100% !important;
+}
+</style>
+"""
+
+html_data, _ = html_exporter.from_notebook_node(nb_node)
+html_data = html_data.replace("</head>", custom_css + "</head>")
+
+log_step(f"HTML dosyası {HTML_PATH} olarak kaydediliyor...")
+with open(HTML_PATH, "w", encoding="utf-8") as f:
+    f.write(html_data)
+
+# ✅ 4. PDF'e dönüştür
+async def generate_pdf():
+    log_step("Chrome başlatılıyor...")
+    browser = await launch(
+        executablePath=CHROME_PATH,
+        headless=True,
+        dumpio=True,
+        args=[
+            "--no-sandbox",
+            "--disable-gpu",
+            "--disable-dev-shm-usage",
+            "--disable-setuid-sandbox",
+            "--single-process",
+            "--no-zygote"
+        ]
+    )
+
+    log_step("Yeni sekme açılıyor...")
     page = await browser.newPage()
-    await page.goto(f"file://{PDF_OUTPUT_PATH}")
-    await asyncio.sleep(2)
-    print(f"📥 PDF başarıyla indirildi: {PDF_OUTPUT_PATH}")
+
+    log_step("HTML sayfası yükleniyor...")
+    await page.goto(f"file://{os.path.abspath(HTML_PATH)}", {'waitUntil': 'networkidle0'})
+
+    log_step("PDF olarak kaydediliyor...")
+    await page.pdf({
+        'path': PDF_OUTPUT_PATH,
+        'format': 'A4',
+        'printBackground': True,
+        'margin': {'top': '0.5cm', 'bottom': '0.5cm', 'left': '0.5cm', 'right': '0.5cm'},
+        'scale': 0.8,
+        'landscape': True
+    })
+
+    log_step("Tarayıcı kapatılıyor...")
     await browser.close()
+    log_step(f"PDF oluşturuldu: {PDF_OUTPUT_PATH}")
 
-async def main():
-    convert_ipynb_to_html()  # 📝 `.ipynb` → `.html`
-    convert_html_to_pdf()  # 📝 `.html` → `.pdf`
-    await download_pdf()  # ⬇️ PDF'yi indir
-
-asyncio.run(main())
+# ✅ 5. Event loop kontrolü
+log_step("PDF oluşturma işlemi başlatılıyor...")
+try:
+    loop = asyncio.get_event_loop()
+    if loop.is_running():
+        nest_asyncio.apply()
+    loop.run_until_complete(generate_pdf())
+except Exception as e:
+    log_step(f"HATA: {e}")
