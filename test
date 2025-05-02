@@ -3,47 +3,55 @@ import asyncio
 import nest_asyncio
 from pyppeteer import launch
 
-# Jupyter Notebook uyumluluğunu sağla
+# Jupyter Notebook’un asenkron döngüsüne uyum sağla
 nest_asyncio.apply()
 
-# İndirilecek dosya adları listesi
+# 📂 **İndirilecek dosya dizini**
+jupyterhub_url = "http://localhost:8000/tree/YOUR_DIRECTORY_PATH"
+
+# 🎯 **İndirilecek dosya listesi**
 notebook_names = [
     "notebook1.ipynb",
     "notebook2.ipynb",
-    "notebook3.ipynb"  # Gerekirse daha fazla dosya ekleyin
+    "notebook3.ipynb"  # Daha fazla dosya ekleyebilirsiniz
 ]
 
 async def download_notebooks():
-    jupyterhub_url = "http://localhost:8000/tree/YOUR_DIRECTORY_PATH"
-
-    # Pyppeteer ile Chrome başlatılıyor
+    # 🚀 **Chrome başlatılıyor**
     browser = await launch(
-        executablePath='/veri01/chrome-linux/chrome',  
+        executablePath='/veri01/chrome-linux/chrome',  # Sunucudaki Chrome’un yolu
         headless=True,
         args=['--no-sandbox']
     )
-    
-    page = await browser.newPage()
-    await page.goto(jupyterhub_url)
 
+    page = await browser.newPage()
+    await page.goto(jupyterhub_url)  # Ana dizine git
+
+    # 🔄 **Her dosya için indirme işlemi**
     for notebook in notebook_names:
         file_xpath = f'//a[contains(@href, "{notebook}")]'
         await page.waitForXPath(file_xpath)
-        
+
         elements = await page.xpath(file_xpath)
         if elements:
-            await elements[0].click()
+            await elements[0].click()  # 📂 Dosyayı aç
             await page.waitForNavigation()
 
+            # 💾 Notebook'u kaydet
             await page.click('button[data-jupyter-action="save-notebook"]')
             await asyncio.sleep(2)
+
+            # ⬇️ Dosyayı indir
             await page.click('button[data-jupyter-action="download-notebook"]')
             await asyncio.sleep(5)
 
             print(f"{notebook} başarıyla indirildi!")
-            await page.goBack()
+            await page.goBack()  # Bir sonraki dosya için geri dön
 
     await browser.close()
 
-# Jupyter ile uyumlu şekilde çalıştır
-asyncio.create_task(download_notebooks())
+# ✅ **Kodun Jupyter ile uyumlu çalışmasını sağla**
+async def main():
+    await download_notebooks()
+
+asyncio.run(main())  # Yeni bir asenkron döngü başlat
