@@ -1,57 +1,97 @@
+import os
 import nbformat
 from nbconvert import HTMLExporter
 from weasyprint import HTML
-import os
+from bs4 import BeautifulSoup
 
 IPYNB_PATH = "/veri01/ipynbdirectory/notebook.ipynb"
-HTML_PATH = "/veri01/ipynbdirectory/notebook.html"
-PDF_PATH = "/veri01/ipynbdirectory/notebook.pdf"
+PDF_OUTPUT_PATH = "/veri01/ipynbdirectory/only_outputs.pdf"
 
-# Notebook'u oku
-with open(IPYNB_PATH, "r", encoding="utf-8") as f:
-    notebook = nbformat.read(f, as_version=4)
-
-# HTMLExporter ile dönüştür
-html_exporter = HTMLExporter()
-html_exporter.exclude_input = False
-html_exporter.exclude_output_prompt = True
-html_exporter.exclude_input_prompt = True
-
-(body, _) = html_exporter.from_notebook_node(notebook)
-
-# Ekstra CSS: tablolar, kod blokları ve uzun çıktılar düzgün sığsın diye
-extra_css = """
+BASE_CSS = """
 <style>
-body {
-    font-size: 11pt;
+@page {
+    size: A4 portrait;
     margin: 1cm;
 }
-.output_area pre, .output_html {
-    white-space: pre-wrap;
+@page rotated {
+    size: A4 landscape;
+    margin: 1cm;
+}
+body {
+    font-family: "DejaVu Sans", sans-serif;
+    font-size: 9pt;
+}
+pre, code {
+    font-size: 8pt !important;
+    white-space: pre-wrap !important;
     word-wrap: break-word;
-    font-size: 10pt;
+}
+.output_area pre, .output_area div {
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    overflow-x: auto !important;
+}
+.output_scroll {
+    overflow-x: auto !important;
+    max-height: none !important;
+}
+.output_wrapper, .output {
+    page-break-inside: avoid !important;
+}
+.table-wide {
+    page: rotated;
+    font-size: 7pt;
+    width: 100%;
+    table-layout: auto;
+    display: block;
+    overflow-x: auto;
 }
 table {
-    width: 100% !important;
-    table-layout: fixed;
-    border-collapse: collapse;
+    width: 100%;
+    word-wrap: break-word;
+    font-size: 8pt;
+    table-layout: auto;
 }
 td, th {
-    word-wrap: break-word;
-    padding: 4px;
-    border: 1px solid #ccc;
+    padding: 2px;
+    text-overflow: clip;
+    overflow-wrap: break-word;
 }
 </style>
 """
 
-# HTML çıktısını birleştir
-full_html = f"<!DOCTYPE html><html><head>{extra_css}</head><body>{body}</body></html>"
+LONG_OUTPUT_STYLE = 'font-size:6pt; line-height:1.1em;'
+LONG_OUTPUT_CHAR_LIMIT = 5000
+TABLE_COLUMN_LIMIT = 8
 
-# HTML dosyasını isteğe bağlı kaydet
-with open(HTML_PATH, "w", encoding="utf-8") as f:
-    f.write(full_html)
+def convert_outputs_only_to_pdf():
+    print("📘 Notebook okunuyor...")
+    with open(IPYNB_PATH, "r", encoding="utf-8") as f:
+        nb = nbformat.read(f, as_version=4)
 
-# HTML'den PDF oluştur
-HTML(string=full_html).write_pdf(PDF_PATH)
+    html_exporter = HTMLExporter()
+    html_exporter.exclude_input = True  # ✅ Kod hücrelerini tamamen dışla
+    html_exporter.exclude_input_prompt = True
+    html_exporter.exclude_output_prompt = True
+    body, _ = html_exporter.from_notebook_node(nb)
 
-print(f"✅ PDF başarıyla oluşturuldu: {PDF_PATH}")
+    soup = BeautifulSoup(body, "html.parser")
+
+    print("🔍 Çıktılar ve tablolar analiz ediliyor...")
+    for output in soup.find_all("div", class_="output_area"):
+        text = output.get_text()
+        if len(text) > LONG_OUTPUT_CHAR_LIMIT:
+            for tag in output.find_all(["pre", "code", "div"]):
+                tag['style'] = tag.get('style', '') + LONG_OUTPUT_STYLE
+
+    for table in soup.find_all("table"):
+        columns = table.find_all("tr")[0].find_all(["td", "th"]) if table.find("tr") else []
+        if len(columns) >= TABLE_COLUMN_LIMIT:
+            table['class'] = table.get('class', []) + ['table-wide']
+
+    print("📄 PDF oluşturuluyor (yalnızca çıktılar)...")
+    final_html = BASE_CSS + str(soup)
+    HTML(string=final_html).write_pdf(PDF_OUTPUT_PATH)
+    print(f"✅ PDF başarıyla oluşturuldu: {PDF_OUTPUT_PATH}")
+
+convert_outputs_only_to_pdf()
