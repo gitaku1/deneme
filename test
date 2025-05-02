@@ -5,7 +5,7 @@ from weasyprint import HTML
 from bs4 import BeautifulSoup
 
 IPYNB_PATH = "/veri01/ipynbdirectory/notebook.ipynb"
-PDF_OUTPUT_PATH = "/veri01/ipynbdirectory/only_outputs.pdf"
+PDF_OUTPUT_PATH = "/veri01/ipynbdirectory/only_outputs_cleaned.pdf"
 
 BASE_CSS = """
 <style>
@@ -64,34 +64,51 @@ LONG_OUTPUT_STYLE = 'font-size:6pt; line-height:1.1em;'
 LONG_OUTPUT_CHAR_LIMIT = 5000
 TABLE_COLUMN_LIMIT = 8
 
-def convert_outputs_only_to_pdf():
+def convert_outputs_only_clean():
     print("📘 Notebook okunuyor...")
     with open(IPYNB_PATH, "r", encoding="utf-8") as f:
         nb = nbformat.read(f, as_version=4)
 
     html_exporter = HTMLExporter()
-    html_exporter.exclude_input = True  # ✅ Kod hücrelerini tamamen dışla
+    html_exporter.exclude_input = True
     html_exporter.exclude_input_prompt = True
     html_exporter.exclude_output_prompt = True
     body, _ = html_exporter.from_notebook_node(nb)
 
     soup = BeautifulSoup(body, "html.parser")
 
-    print("🔍 Çıktılar ve tablolar analiz ediliyor...")
-    for output in soup.find_all("div", class_="output_area"):
-        text = output.get_text()
+    seen_outputs = set()
+    cleaned_outputs = []
+
+    print("🔍 Çıktılar analiz ediliyor...")
+    for output_div in soup.find_all("div", class_="output_area"):
+        text = output_div.get_text(strip=True)
+        if not text or text in seen_outputs:
+            output_div.decompose()  # Boş veya tekrar eden output’u sil
+            continue
+        seen_outputs.add(text)
+
         if len(text) > LONG_OUTPUT_CHAR_LIMIT:
-            for tag in output.find_all(["pre", "code", "div"]):
+            for tag in output_div.find_all(["pre", "code", "div"]):
                 tag['style'] = tag.get('style', '') + LONG_OUTPUT_STYLE
 
-    for table in soup.find_all("table"):
-        columns = table.find_all("tr")[0].find_all(["td", "th"]) if table.find("tr") else []
-        if len(columns) >= TABLE_COLUMN_LIMIT:
-            table['class'] = table.get('class', []) + ['table-wide']
+        cleaned_outputs.append(output_div)
 
-    print("📄 PDF oluşturuluyor (yalnızca çıktılar)...")
+    for table in soup.find_all("table"):
+        header = table.find("tr")
+        if header:
+            columns = header.find_all(["td", "th"])
+            if len(columns) >= TABLE_COLUMN_LIMIT:
+                table['class'] = table.get('class', []) + ['table-wide']
+
+    # Gereksiz boş alanları da temizle
+    for tag in soup.find_all():
+        if not tag.get_text(strip=True) and not tag.name.startswith('img'):
+            tag.decompose()
+
+    print("📄 Temizlenmiş PDF oluşturuluyor...")
     final_html = BASE_CSS + str(soup)
     HTML(string=final_html).write_pdf(PDF_OUTPUT_PATH)
     print(f"✅ PDF başarıyla oluşturuldu: {PDF_OUTPUT_PATH}")
 
-convert_outputs_only_to_pdf()
+convert_outputs_only_clean()
