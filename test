@@ -1,91 +1,53 @@
-import asyncio
-import nest_asyncio
-from pyppeteer import launch
 import nbformat
 from nbconvert import HTMLExporter
+from weasyprint import HTML
 import os
 
-# Ortam ayarları
-os.environ['PYPPETEER_SKIP_CHROMIUM_DOWNLOAD'] = '1'
-
-# Dosya yolları
 IPYNB_PATH = "/veri01/ipynbdirectory/notebook.ipynb"
-HTML_PATH = "/veri01/ipynbdirectory/notebook_rendered.html"
-PDF_OUTPUT_PATH = "/veri01/ipynbdirectory/notebook.pdf"
-CHROME_PATH = "/veri01/chrome-linux/chrome"  # Kendi Chrome'un
+HTML_PATH = "/veri01/ipynbdirectory/notebook.html"
+PDF_PATH = "/veri01/ipynbdirectory/notebook.pdf"
 
-# Notebook'u HTML'e çevir
+# Notebook'u oku
 with open(IPYNB_PATH, "r", encoding="utf-8") as f:
-    nb_content = f.read()
-nb_node = nbformat.reads(nb_content, as_version=4)
+    notebook = nbformat.read(f, as_version=4)
+
+# HTMLExporter ile dönüştür
 html_exporter = HTMLExporter()
 html_exporter.exclude_input = False
 html_exporter.exclude_output_prompt = True
 html_exporter.exclude_input_prompt = True
 
-# CSS: genişlik sığsın, fontlar uygun olsun
+body, _ = html_exporter.from_notebook_node(notebook)
+
+# Ekstra CSS (PDF'ye sığması için ayarlamalar)
 extra_css = """
 <style>
 body {
-    margin: 0 auto;
-    padding: 1cm;
     font-size: 11pt;
-    width: 100%;
-    overflow-x: auto;
+    margin: 1cm;
 }
-.output_area pre {
+.output_area pre, .output_html {
     white-space: pre-wrap;
     word-wrap: break-word;
-}
-.output_area {
-    max-width: 100%;
-    overflow-x: auto;
 }
 table {
     width: 100% !important;
     table-layout: fixed;
+}
+td, th {
     word-wrap: break-word;
 }
 </style>
 """
 
-html_data, _ = html_exporter.from_notebook_node(nb_node)
-html_data = html_data.replace('</head>', f'{extra_css}</head>')
+# HTML dosyasını birleştir
+full_html = f"<!DOCTYPE html><html><head>{extra_css}</head><body>{body}</body></html>"
 
-# HTML dosyasını kaydet
+# HTML'i kaydet (isteğe bağlı)
 with open(HTML_PATH, "w", encoding="utf-8") as f:
-    f.write(html_data)
+    f.write(full_html)
 
-# Async döngü başlatıcı (Jupyter uyumlu)
-nest_asyncio.apply()
+# PDF'ye dönüştür
+HTML(string=full_html).write_pdf(PDF_PATH)
 
-# PDF oluşturucu fonksiyon
-async def convert_html_to_pdf():
-    print("📦 Chrome başlatılıyor...")
-    browser = await launch(
-        executablePath=CHROME_PATH,
-        headless=True,
-        dumpio=True,
-        args=[
-            "--no-sandbox",
-            "--disable-gpu",
-            "--disable-dev-shm-usage",
-            "--window-size=1920,1080"
-        ],
-        userDataDir="/tmp/chrome-user-data",
-        timeout=60000
-    )
-    page = await browser.newPage()
-    await page.goto(f"file://{HTML_PATH}", {"waitUntil": "networkidle0"})
-    await page.pdf({
-        "path": PDF_OUTPUT_PATH,
-        "format": "A4",
-        "margin": {"top": "0.5in", "bottom": "0.5in", "left": "0.5in", "right": "0.5in"},
-        "printBackground": True,
-        "scale": 0.95
-    })
-    await browser.close()
-    print(f"✅ PDF başarıyla oluşturuldu: {PDF_OUTPUT_PATH}")
-
-# Koş
-asyncio.get_event_loop().run_until_complete(convert_html_to_pdf())
+print(f"✅ PDF başarıyla oluşturuldu: {PDF_PATH}")
