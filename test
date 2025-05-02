@@ -3,38 +3,36 @@ import asyncio
 import nest_asyncio
 from pyppeteer import launch
 
-# Jupyter Notebook’un asenkron döngüsüne uyum sağla
 nest_asyncio.apply()
 
-# 📂 Kullanıcıdan dizinleri al
-IPYNB_PATH = "/veri01/ipynbdirectory/notebook.ipynb"  # Kullanıcının belirttiği `.ipynb` dosyası
-CHROME_PATH = "/veri01/chrome-linux/chrome"  # Kullanıcının belirttiği Chrome dizini
-PDF_OUTPUT_PATH = "/veri01/ipynbdirectory/notebook.pdf"  # Çıkacak PDF dosyası
+IPYNB_PATH = "/veri01/ipynbdirectory/notebook.ipynb"
+HTML_OUTPUT_PATH = "/veri01/ipynbdirectory/notebook.html"
+PDF_OUTPUT_PATH = "/veri01/ipynbdirectory/notebook.pdf"
+CHROME_PATH = "/veri01/chrome-linux/chrome"
 
-# `.ipynb` dosyasını PDF formatına dönüştür
-def convert_ipynb_to_pdf():
-    os.system(f"jupyter nbconvert --to pdf {IPYNB_PATH} --output {PDF_OUTPUT_PATH}")
+# `.ipynb` dosyasını HTML'e çevir
+def convert_ipynb_to_html():
+    os.system(f"jupyter nbconvert --to html {IPYNB_PATH} --output {HTML_OUTPUT_PATH}")
+
+# HTML'i PDF formatına dönüştür (LaTeX kullanmadan!)
+def convert_html_to_pdf():
+    os.system(f"wkhtmltopdf {HTML_OUTPUT_PATH} {PDF_OUTPUT_PATH}")
 
 async def download_pdf():
-    # 🚀 **Chrome başlatılıyor**
-    browser = await launch(
-        executablePath=CHROME_PATH,  
-        headless=True,
-        args=['--no-sandbox']
-    )
+    if not os.path.exists(PDF_OUTPUT_PATH):
+        print("❌ PDF bulunamadı, işlem iptal ediliyor.")
+        return
 
+    browser = await launch(executablePath=CHROME_PATH, headless=True, args=['--no-sandbox'])
     page = await browser.newPage()
-
-    # 📂 PDF dosyasını aç ve indir
     await page.goto(f"file://{PDF_OUTPUT_PATH}")
     await asyncio.sleep(2)
     print(f"📥 PDF başarıyla indirildi: {PDF_OUTPUT_PATH}")
-
     await browser.close()
 
-# ✅ **Kodun Jupyter ile uyumlu çalışmasını sağla**
 async def main():
-    convert_ipynb_to_pdf()  # 📝 `.ipynb` dosyasını PDF'ye dönüştür
+    convert_ipynb_to_html()  # 📝 `.ipynb` → `.html`
+    convert_html_to_pdf()  # 📝 `.html` → `.pdf`
     await download_pdf()  # ⬇️ PDF'yi indir
 
-asyncio.run(main())  # Yeni bir asenkron döngü başlat
+asyncio.run(main())
