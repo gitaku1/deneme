@@ -2,19 +2,17 @@ import os
 import nbformat
 from nbconvert import HTMLExporter
 from weasyprint import HTML
-from multiprocessing import Process
-from tempfile import NamedTemporaryFile
 
-# Yolları tanımla
+# Ayarlar
 IPYNB_PATH = "/veri01/ipynbdirectory/notebook.ipynb"
 PDF_OUTPUT_PATH = "/veri01/ipynbdirectory/notebook.pdf"
 
-# Dinamik CSS (sayfaya sığdırma ve fontları optimize etme)
+# Küçük ve sığdırılmış özel CSS
 CUSTOM_CSS = """
 <style>
 body {
     font-family: "DejaVu Sans", sans-serif;
-    font-size: 10pt;
+    font-size: 9pt;
     margin: 0;
     padding: 0;
 }
@@ -22,13 +20,14 @@ body {
     white-space: pre-wrap !important;
     word-wrap: break-word;
     overflow-x: auto;
-    font-size: 8pt;
+    font-size: 7pt;
+    max-width: 100%;
 }
 table {
     width: 100% !important;
     table-layout: fixed;
     word-wrap: break-word;
-    font-size: 8pt;
+    font-size: 7pt;
 }
 td, th {
     padding: 2px;
@@ -36,51 +35,35 @@ td, th {
     text-overflow: ellipsis;
 }
 code {
-    font-size: 8pt;
+    font-size: 7pt;
     word-break: break-word;
 }
 div.output_scroll {
     overflow: visible !important;
+    max-height: none !important;
+}
+.output_wrapper, .output {
+    page-break-inside: avoid;
 }
 </style>
 """
 
-def generate_pdf():
-    print("[1/4] Notebook yükleniyor...")
+def convert_full_notebook():
+    print("📘 Notebook okunuyor...")
     with open(IPYNB_PATH, "r", encoding="utf-8") as f:
-        nb_content = f.read()
-    
-    nb_node = nbformat.reads(nb_content, as_version=4)
+        nb = nbformat.read(f, as_version=4)
+
+    print("💻 HTML'e dönüştürülüyor...")
     html_exporter = HTMLExporter()
     html_exporter.exclude_input_prompt = True
     html_exporter.exclude_output_prompt = True
+    body, _ = html_exporter.from_notebook_node(nb)
 
-    print("[2/4] HTML'e dönüştürülüyor...")
-    body, _ = html_exporter.from_notebook_node(nb_node)
-    
-    # Custom CSS ekleniyor
+    # CSS ekle
     full_html = CUSTOM_CSS + body
 
-    print("[3/4] Geçici HTML oluşturuluyor...")
-    with NamedTemporaryFile(suffix=".html", delete=False, mode='w', encoding='utf-8') as tmp_file:
-        tmp_file.write(full_html)
-        tmp_html_path = tmp_file.name
-
-    print("[4/4] PDF dönüştürülüyor (biraz sürebilir)...")
-    HTML(tmp_html_path).write_pdf(PDF_OUTPUT_PATH)
-
+    print("📄 PDF oluşturuluyor, bu işlem birkaç dakika sürebilir...")
+    HTML(string=full_html).write_pdf(PDF_OUTPUT_PATH)
     print(f"✅ PDF başarıyla oluşturuldu: {PDF_OUTPUT_PATH}")
-    os.remove(tmp_html_path)
 
-def run_async_pdf():
-    p = Process(target=generate_pdf)
-    p.start()
-    p.join(timeout=900)  # Maksimum 15 dakika
-    if p.is_alive():
-        print("⛔ Zaman aşımı: PDF üretimi çok uzun sürdü ve durduruldu.")
-        p.terminate()
-    else:
-        print("✅ PDF işlemi tamamlandı.")
-
-# Fonksiyonu çağır
-run_async_pdf()
+convert_full_notebook()
