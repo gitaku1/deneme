@@ -1,30 +1,22 @@
-{
-  "commitHash": "main",
-  "downloadDate": 1715474400000,
-  "downloadedBy": "admin",
-  "lastDssUsage": 1715474400000,
-  "lastModified": "2024-05-10T00:00:00.000Z",
-  "lastUsedBy": "admin",
-  "libraryName": "transformers",
-  "modelDefinition": {
-    "folderName": "llama_3_2_1b_instruct",
-    "key": "hf@meta-llama/Llama-3.2-1B-Instruct",
-    "modelId": "meta-llama/Llama-3.2-1B-Instruct",
-    "revision": "main"
-  },
-  "pipelineName": "text-generation",
-  "sizeInBytes": 1234567890,
-  "taggedLanguages": [
-    "en"
-  ],
-  "tags": [
-    "llama",
-    "meta",
-    "transformers",
-    "text-generation",
-    "en"
-  ],
-  "url": "https://huggingface.co/meta-llama/Llama-3.2-1B-Instruct",
-  "version": 0
-}
+from transformers import AutoTokenizer, AutoModel
+import torch
 
+# 1. Modelin klasörünü belirt (modeli indirdiğin dizin)
+model_path = "/veri01/huggingface/nomic-ai/nomic-embed-text-v2-moe"
+
+# 2. Tokenizer ve model yükle
+tokenizer = AutoTokenizer.from_pretrained(model_path)
+model = AutoModel.from_pretrained(model_path)
+
+# 3. Örnek metin
+text = "Bu modeli doğru şekilde yükledim mi?"
+
+# 4. Tokenize et
+inputs = tokenizer(text, return_tensors="pt")
+
+# 5. Modeli çalıştır
+with torch.no_grad():
+    outputs = model(**inputs)
+
+# 6. Sonuçları göster
+print("Model çıktı shape:", outputs.last_hidden_state.shape)
