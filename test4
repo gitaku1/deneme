@@ -1,6 +1,6 @@
 #!/bin/bash
 
-BASEURL="https://hostname:443/nexus/local/"
+BASEURL="https://hostname:443/"
 AUTH="user:pass"
 
 total_size=0
