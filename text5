@@ -1,0 +1,33 @@
+import os
+import psutil
+import time
+
+def allocate_memory(target_percent=90, hold_seconds=30):
+    total_mem = psutil.virtual_memory().total
+    target_mem = total_mem * (target_percent / 100)
+    
+    print(f"Toplam bellek: {total_mem / (1024**3):.2f} GB")
+    print(f"Hedef kullanım: {target_mem / (1024**3):.2f} GB ({target_percent}%)")
+    
+    try:
+        # Her öğe yaklaşık 1 byte tutar
+        dummy = []
+        allocated = 0
+        chunk_size = 100 * 1024 * 1024  # 100 MB
+        while allocated < target_mem:
+            dummy.append(bytearray(chunk_size))
+            allocated += chunk_size
+            print(f"Şu an ayrılan: {allocated / (1024**3):.2f} GB")
+            time.sleep(0.1)  # Sistemi tamamen kitlememek için küçük gecikme
+        
+        print(f"{hold_seconds} saniye boyunca belleği dolu tutuyor...")
+        time.sleep(hold_seconds)
+
+    except MemoryError:
+        print("Bellek hatası: Daha fazla bellek ayrılamıyor.")
+    finally:
+        dummy.clear()
+        print("Bellek temizlendi.")
+
+# Örnek: %90 bellek kullanımı simülasyonu
+allocate_memory(target_percent=90, hold_seconds=30)
