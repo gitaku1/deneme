@@ -1,0 +1,39 @@
+#!/bin/bash
+
+# Jupyter kernel PID dosyalarının bulunduğu dizin
+KERNEL_DIR="/tmp/*/.local/share/jupyter/runtime"
+
+# 2 gün (172800 saniye) için süre kontrolü
+MAX_AGE=$((2 * 24 * 60 * 60))
+
+# Log dosyası
+LOG_FILE="/veri01/kill.txt"
+
+# Kernel PID dosyalarını kontrol et
+for user_dir in /tmp/*; do
+    if [ -d "$user_dir/.local/share/jupyter/runtime" ]; then
+        for pid_file in "$user_dir"/.local/share/jupyter/runtime/kernel-*; do
+            if [ -f "$pid_file" ]; then
+                # PID dosyasındaki PID'yi oku
+                pid=$(cat "$pid_file")
+                
+                # PID'nin çalışma süresini kontrol et
+                if [ -d /proc/$pid ]; then
+                    # PID'nin başlangıç zamanını al
+                    start_time=$(stat -c %Y "$pid_file")
+                    current_time=$(date +%s)
+                    process_age=$((current_time - start_time))
+                    
+                    # Eğer süreç yaşı 2 günden fazlaysa öldür
+                    if [ "$process_age" -gt "$MAX_AGE" ]; then
+                        echo "Killing process $pid (age: $process_age seconds)"
+                        kill "$pid"
+                        
+                        # Log kaydını yaz
+                        echo "$(date '+%Y-%m-%d %H:%M:%S') - Killed process $pid from $pid_file" >> "$LOG_FILE"
+                    fi
+                fi
+            fi
+        done
+    fi
+done
