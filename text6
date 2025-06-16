@@ -1,39 +1,54 @@
 #!/bin/bash
 
-# Jupyter kernel PID dosyalarının bulunduğu dizin
-KERNEL_DIR="/tmp/*/.local/share/jupyter/runtime"
-
-# 2 gün (172800 saniye) için süre kontrolü
-MAX_AGE=$((2 * 24 * 60 * 60))
-
-# Log dosyası
 LOG_FILE="/veri01/kill.txt"
+DATE=$(date +"%Y-%m-%d %H:%M:%S")
 
-# Kernel PID dosyalarını kontrol et
-for user_dir in /tmp/*; do
-    if [ -d "$user_dir/.local/share/jupyter/runtime" ]; then
-        for pid_file in "$user_dir"/.local/share/jupyter/runtime/kernel-*; do
-            if [ -f "$pid_file" ]; then
-                # PID dosyasındaki PID'yi oku
-                pid=$(cat "$pid_file")
-                
-                # PID'nin çalışma süresini kontrol et
-                if [ -d /proc/$pid ]; then
-                    # PID'nin başlangıç zamanını al
-                    start_time=$(stat -c %Y "$pid_file")
-                    current_time=$(date +%s)
-                    process_age=$((current_time - start_time))
-                    
-                    # Eğer süreç yaşı 2 günden fazlaysa öldür
-                    if [ "$process_age" -gt "$MAX_AGE" ]; then
-                        echo "Killing process $pid (age: $process_age seconds)"
-                        kill "$pid"
-                        
-                        # Log kaydını yaz
-                        echo "$(date '+%Y-%m-%d %H:%M:%S') - Killed process $pid from $pid_file" >> "$LOG_FILE"
-                    fi
-                fi
-            fi
-        done
+# JupyterHub kullanıcısı tarafından çalıştırılan ilgili PID'leri bul
+PIDS=$(ps -eo pid,etime,user,cmd | awk -v date="$DATE" -v log_file="$LOG_FILE" '
+    $3 == "jupyterhub" && $4 ~ /\/tmp\/[^\/]+\/.local\/share\/jupyter\/runtime\/kernel-.*/ {
+        split($2, time, "-")
+        if (length(time) > 1 && time[1] >= 2) {
+            print $1 " " $4 " " date >> log_file
+            print $1
+        }
+    }
+')
+
+# Eğer uygun PID'ler bulunduysa, süreçleri sonlandır
+if [[ ! -z "$PIDS" ]]; then
+    echo "Aşağıdaki süreçler 2 günden fazla çalışıyor ve sonlandırılıyor:"
+    echo "$PIDS"
+    echo "$PIDS" | xargs kill -9
+    echo "Kill edilen PID'ler ve bilgiler log dosyasına eklendi: $LOG_FILE"
+else
+    echo "2 günden fazla süredir çalışan uygun PID bulunamadı."
+fi
+
+
+
+
+#!/bin/bash
+
+logfile="/veri01/kill.txt"
+echo "[START] $(date) kill işlemi başlıyor" >> "$logfile"
+
+ps -eo pid,etime,cmd h | while read pid etime cmdline; do
+  # Komut satırında /tmp/user/.local/share/jupyter/runtime/kernel- içerenler (user ve kernel sonrası değişken)
+  [[ "$cmdline" =~ \/tmp\/[^\/]+\/\.local\/share\/jupyter\/runtime\/kernel- ]] || continue
+
+  # etime 2 günden uzun mu kontrolü (etime içinde - varsa gün var)
+  [[ "$etime" == *-* ]] || continue
+
+  days=${etime%%-*}  # Gün sayısını al
+
+  if (( days >= 2 )); then
+    echo "[FOUND] PID $pid - Süre: $etime - Komut: $cmdline" | tee -a "$logfile"
+    if kill -9 "$pid" 2>/dev/null; then
+      echo "[KILLED] $(date) PID=$pid Etimedays=$days Komut=\"$cmdline\"" >> "$logfile"
+    else
+      echo "[FAILED] $(date) PID=$pid öldürülemedi (izin veya başka sorun)" >> "$logfile"
     fi
+  fi
 done
+
+echo "[END] $(date) kill işlemi tamamlandı" >> "$logfile"
