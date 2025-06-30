@@ -12,3 +12,17 @@ try:
             print(f"❌ RowGroup {i} atlandı: {str(e)}")
 except Exception as e:
     print(f"🚨 Dosya açılamadı: {str(e)}")
+
+
+
+from pyspark.sql import SparkSession
+
+spark = SparkSession.builder.appName("RepairParquet").getOrCreate()
+
+try:
+    df = spark.read.parquet("hdfs:///hdfs/path/to/broken.parq")
+    df.limit(100).show()  # varsa veri döner
+    df.write.mode("overwrite").parquet("hdfs:///repaired/path/broken_fixed.parq")
+    print("✅ Parquet dosyası yeniden yazıldı")
+except Exception as e:
+    print("❌ Okunamıyor:", str(e))
