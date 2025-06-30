@@ -1,0 +1,14 @@
+import pyarrow.parquet as pq
+
+try:
+    # Tüm row group'ları teker teker okuyarak kurtarma
+    pf = pq.ParquetFile("bozuk.parq")
+    for i in range(pf.num_row_groups):
+        try:
+            batch = pf.read_row_group(i)
+            pq.write_table(batch, f"repaired_part_{i}.parq")
+            print(f"✅ RowGroup {i} kurtarıldı ({batch.num_rows} satır)")
+        except Exception as e:
+            print(f"❌ RowGroup {i} atlandı: {str(e)}")
+except Exception as e:
+    print(f"🚨 Dosya açılamadı: {str(e)}")
