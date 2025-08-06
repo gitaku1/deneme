@@ -1,3 +1,33 @@
+from IPython.core.interactiveshell import InteractiveShell
+import builtins
+
+# !pip komutlarını engelle
+_original_system = InteractiveShell.system
+def block_system_cmd(cmd):
+    if "pip" in cmd:
+        raise RuntimeError("🚫 !pip komutları Jupyter arayüzünde engellenmiştir.")
+    return _original_system(cmd)
+
+InteractiveShell.system = block_system_cmd
+
+# %pip büyüsünü engelle
+from IPython.core.magic import register_line_magic
+
+@register_line_magic
+def pip(line):
+    raise RuntimeError("🚫 %pip komutu Jupyter arayüzünde engellenmiştir.")
+
+# import pip'i engelle
+_real_import = builtins.__import__
+def secure_import(name, *args, **kwargs):
+    if name == "pip":
+        raise RuntimeError("🚫 pip modülüne erişim engellenmiştir.")
+    return _real_import(name, *args, **kwargs)
+
+builtins.__import__ = secure_import
+
+
+
 import os
 import nbformat
 from nbconvert import HTMLExporter
