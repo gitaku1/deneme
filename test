@@ -1,3 +1,83 @@
+import builtins
+import sys
+import warnings
+
+# Protect against %pip and !pip in notebooks
+try:
+    ipython = get_ipython()
+    if hasattr(ipython, 'run_cell_magic'):
+        def block_cell_magic(*args, **kwargs):
+            raise RuntimeError("Cell magics like %pip are disabled.")
+
+        ipython.register_magic_function(block_cell_magic, 'line', 'pip')
+        ipython.register_magic_function(block_cell_magic, 'cell', 'pip')
+
+    if hasattr(ipython, 'system'):
+        def block_system(cmd):
+            if 'pip' in cmd:
+                raise RuntimeError("Shell commands using pip are disabled.")
+            return ipython.original_system(cmd)
+        if not hasattr(ipython, 'original_system'):
+            ipython.original_system = ipython.system
+        ipython.system = block_system
+except NameError:
+    pass  # Not in IPython
+
+# Override __import__ to block 'pip'
+original_import = builtins.__import__
+def custom_import(name, *args, **kwargs):
+    if name == 'pip':
+        raise ImportError("Importing pip is disabled.")
+    return original_import(name, *args, **kwargs)
+
+builtins.__import__ = custom_import
+
+# Override pip._internal.main and pip.main if imported
+try:
+    import pip
+    pip.main = lambda *a, **k: sys.exit("pip execution is disabled.")
+    if hasattr(pip, '_internal') and hasattr(pip._internal, 'main'):
+        pip._internal.main = lambda *a, **k: sys.exit("pip execution is disabled.")
+except ImportError:
+    pass
+
+# Optional warning
+warnings.warn("pip usage is restricted in this environment.", RuntimeWarning)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 from IPython.core.interactiveshell import InteractiveShell
 import builtins
 
