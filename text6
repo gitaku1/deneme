@@ -1,54 +1,99 @@
-#!/bin/bash
+# copy_code_env.py
+# Çalıştırma: python copy_code_env.py
+import dataikuapi
+import json
+import time
+import traceback
 
-LOG_FILE="/veri01/kill.txt"
-DATE=$(date +"%Y-%m-%d %H:%M:%S")
+SRC_URL = "http://SRC_DSS_HOST:11000"
+SRC_API_KEY = "SRC_API_KEY"
+DST_URL = "http://DST_DSS_HOST:11000"
+DST_API_KEY = "DST_API_KEY"
 
-# JupyterHub kullanıcısı tarafından çalıştırılan ilgili PID'leri bul
-PIDS=$(ps -eo pid,etime,user,cmd | awk -v date="$DATE" -v log_file="$LOG_FILE" '
-    $3 == "jupyterhub" && $4 ~ /\/tmp\/[^\/]+\/.local\/share\/jupyter\/runtime\/kernel-.*/ {
-        split($2, time, "-")
-        if (length(time) > 1 && time[1] >= 2) {
-            print $1 " " $4 " " date >> log_file
-            print $1
-        }
-    }
-')
+ENV_LANG = "PYTHON"        # veya "R"
+ENV_NAME = "Spark_test"
+# varsayılan deployment mode. Çoğu design node için "DESIGN_MANAGED"
+DEFAULT_DEPLOYMENT_MODE = "DESIGN_MANAGED"
 
-# Eğer uygun PID'ler bulunduysa, süreçleri sonlandır
-if [[ ! -z "$PIDS" ]]; then
-    echo "Aşağıdaki süreçler 2 günden fazla çalışıyor ve sonlandırılıyor:"
-    echo "$PIDS"
-    echo "$PIDS" | xargs kill -9
-    echo "Kill edilen PID'ler ve bilgiler log dosyasına eklendi: $LOG_FILE"
-else
-    echo "2 günden fazla süredir çalışan uygun PID bulunamadı."
-fi
+src = dataikuapi.DSSClient(SRC_URL, SRC_API_KEY)
+dst = dataikuapi.DSSClient(DST_URL, DST_API_KEY)
 
+# 1) Kaynaktan definition al
+print("Kaynak env tanımı çekiliyor...")
+src_env = src.get_code_env(ENV_LANG, ENV_NAME)
+definition = src_env.get_definition()   # <-- burada env.export() yok, get_definition() kullan
+# Yedeğini dosyaya kaydet
+with open(f"{ENV_NAME}_definition.json", "w", encoding="utf-8") as f:
+    json.dump(definition, f, indent=2, ensure_ascii=False)
+print(f"Tanım kaydedildi -> {ENV_NAME}_definition.json")
 
+# 2) Hedefte mevcut mu kontrol et
+dst_env = None
+exists_on_dst = False
+try:
+    candidate = dst.get_code_env(ENV_LANG, ENV_NAME)
+    # get_definition çağırmak env yoksa hata fırlatır
+    candidate.get_definition()
+    dst_env = candidate
+    exists_on_dst = True
+    print("Hedefte zaten var -> güncellenecek.")
+except Exception as e:
+    # yoksa create edeceğiz
+    exists_on_dst = False
+    print("Hedefte yok, oluşturulacak.")
 
+# 3) Eğer yoksa oluştur, varsa güncelle
+try:
+    if not exists_on_dst:
+        # create_code_env üçüncü parametre deployment_mode. Eğer definition içinde bir ipucu varsa onu kullan
+        deployment_mode = definition.get("deploymentMode", DEFAULT_DEPLOYMENT_MODE)
+        # create_code_env'ın 4. parametresi ile interpreter belirtmek isteyebilirsin:
+        params = None
+        pyinterp = definition.get("desc", {}).get("pythonInterpreter")
+        if pyinterp:
+            params = {"pythonInterpreter": pyinterp}
+        print("Yeni env oluşturuluyor (çalıştırılacak: create_code_env)...")
+        dst_env = dst.create_code_env(ENV_LANG, ENV_NAME, deployment_mode, params)
+        print("Oluşturma tamamlandı.")
+    # set_definition ile kaynaktaki definition'ı hedefe yaz
+    print("Definition hedefe yazılıyor (set_definition)...")
+    dst_env.set_definition(definition)
+    print("Definition yazıldı.")
+except Exception:
+    print("Hata oluştu (create/set_definition). Trace:")
+    traceback.print_exc()
+    raise
 
-#!/bin/bash
+# 4) Paketleri yükleyip rebuild et
+try:
+    print("update_packages ile paketleri kurup env'i rebuild ediyoruz (force_rebuild_env=True)...")
+    result = dst_env.update_packages(force_rebuild_env=True)
+    print("update_packages sonuç:", result)
+except Exception:
+    print("update_packages sırasında hata. Logları kontrol et.")
+    traceback.print_exc()
 
-logfile="/veri01/kill.txt"
-echo "[START] $(date) kill işlemi başlıyor" >> "$logfile"
+# 5) (İsteğe bağlı) Image rebuild gerekiyorsa
+try:
+    print("update_images çağrılıyor (varsa docker image rebuild)...")
+    img_res = dst_env.update_images()
+    print("update_images sonuç:", img_res)
+except Exception:
+    print("update_images desteklenmiyor veya hata verdi (bu normal olabilir).")
+    # traceback.print_exc()
 
-ps -eo pid,etime,cmd h | while read pid etime cmdline; do
-  # Komut satırında /tmp/user/.local/share/jupyter/runtime/kernel- içerenler (user ve kernel sonrası değişken)
-  [[ "$cmdline" =~ \/tmp\/[^\/]+\/\.local\/share\/jupyter\/runtime\/kernel- ]] || continue
-
-  # etime 2 günden uzun mu kontrolü (etime içinde - varsa gün var)
-  [[ "$etime" == *-* ]] || continue
-
-  days=${etime%%-*}  # Gün sayısını al
-
-  if (( days >= 2 )); then
-    echo "[FOUND] PID $pid - Süre: $etime - Komut: $cmdline" | tee -a "$logfile"
-    if kill -9 "$pid" 2>/dev/null; then
-      echo "[KILLED] $(date) PID=$pid Etimedays=$days Komut=\"$cmdline\"" >> "$logfile"
-    else
-      echo "[FAILED] $(date) PID=$pid öldürülemedi (izin veya başka sorun)" >> "$logfile"
-    fi
-  fi
-done
-
-echo "[END] $(date) kill işlemi tamamlandı" >> "$logfile"
+# 6) İstersen logları al
+try:
+    logs = dst_env.list_logs()
+    if logs:
+        print("Bazı log dosyaları:")
+        for l in logs:
+            print(" -", l.get("name"))
+        # örnek: son log'u göster
+        last = logs[-1]["name"]
+        print(f"\nSon log ({last}) içeriği:\n")
+        print(dst_env.get_log(last)[:4000])  # uzun log'ları kes
+    else:
+        print("Log yok.")
+except Exception:
+    print("Log alma sırasında hata (bu normal olabilir).")
