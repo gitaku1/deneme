@@ -1,17 +1,30 @@
 import pyarrow.fs as fs
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# HDFS connection (adjust namenode host:port)
-hdfs, _ = fs.HadoopFileSystem.from_uri("hdfs://namenode:8020")
-
-# HDFS directory to scan
-HDFS_DIR = "/user/ali"
+# -----------------------------
+# HDFS Connection
+# -----------------------------
+# Replace with your HDFS URI (from `hdfs getconf -confKey fs.defaultFS`)
+HDFS_URI = "hdfs://ali-namenode"
 
 # Number of parallel threads
 MAX_WORKERS = 10
 
+try:
+    # PyArrow >= 11 returns a single object, no unpacking needed
+    hdfs = fs.HadoopFileSystem.from_uri(HDFS_URI)
+except Exception as e:
+    print("Error connecting to HDFS:", e)
+    exit(1)
+
+# -----------------------------
+# Helper functions
+# -----------------------------
 def is_corrupt(path):
-    """Check if a file is corrupt (Parquet/rowfile check via first/last 4 bytes)"""
+    """
+    Check if a file is corrupt by reading first and last 4 bytes.
+    Returns the path if corrupt, None if OK.
+    """
     try:
         with hdfs.open_input_file(path) as f:
             size = f.size
@@ -26,22 +39,29 @@ def is_corrupt(path):
 
             if head != b'PAR1' or tail != b'PAR1':
                 return path  # corrupt
-    except Exception as e:
-        return path  # if any error occurs, mark as corrupt
+    except Exception:
+        # Any exception is treated as corrupt
+        return path
     return None  # file is OK
 
 def list_files_recursively(hdfs_dir):
-    """Recursively list all files under HDFS_DIR"""
+    """
+    Recursively list all files under HDFS_DIR
+    """
     files = []
     for info in hdfs.get_file_info(fs.FileSelector(hdfs_dir, recursive=True)):
         if info.is_file:
             files.append(info.path)
     return files
 
+# -----------------------------
+# Main execution
+# -----------------------------
 def main():
-    files = list_files_recursively(HDFS_DIR)
+    files = list_files_recursively("/user/ali")
     corrupt_files = []
 
+    # Use ThreadPoolExecutor for parallelism
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         future_to_file = {executor.submit(is_corrupt, f): f for f in files}
         for future in as_completed(future_to_file):
@@ -49,7 +69,7 @@ def main():
             if result:
                 corrupt_files.append(result)
 
-    print("CORRUPT files:")
+    print("\nCORRUPT files found:")
     for f in corrupt_files:
         print(f)
 
