@@ -1,33 +1,57 @@
-#!/bin/bash
-# check_parquet_parallel_clean.sh
-# Usage: ./check_parquet_parallel_clean.sh /user/ali <parallel_jobs>
-# Example: ./check_parquet_parallel_clean.sh /user/ali 10
+import pyarrow.fs as fs
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-HDFS_PATH=$1
-PARALLEL=${2:-5}   # Number of parallel jobs, default 5
+# HDFS connection (adjust namenode host:port)
+hdfs, _ = fs.HadoopFileSystem.from_uri("hdfs://namenode:8020")
 
-# List all files recursively under HDFS_PATH and check them in parallel
-hdfs dfs -ls -R "$HDFS_PATH" | awk '{print $8}' | \
-xargs -n 1 -P "$PARALLEL" bash -c '
-f="$0"
+# HDFS directory to scan
+HDFS_DIR = "/user/ali"
 
-# Get file size in bytes
-len=$(hdfs dfs -stat %b "$f" 2>/dev/null)
+# Number of parallel threads
+MAX_WORKERS = 10
 
-# If file size is empty or less than 8 bytes, mark as corrupt
-if [ -z "$len" ] || [ "$len" -lt 8 ]; then
-    echo "CORRUPT: $f (too small or stat failed)"
-    exit 0
-fi
+def is_corrupt(path):
+    """Check if a file is corrupt (Parquet/rowfile check via first/last 4 bytes)"""
+    try:
+        with hdfs.open_input_file(path) as f:
+            size = f.size
+            if size < 8:
+                return path  # too small, consider corrupt
 
-# Read first 4 bytes (magic number)
-head=$(hdfs dfs -cat "$f" | dd bs=1 count=4 2>/dev/null | xxd -p)
+            # Read first 4 bytes
+            head = f.read(4)
+            # Read last 4 bytes
+            f.seek(size - 4)
+            tail = f.read(4)
 
-# Read last 4 bytes (magic number)
-tail=$(hdfs dfs -cat "$f" | dd bs=1 skip=$((len-4)) count=4 2>/dev/null | xxd -p)
+            if head != b'PAR1' or tail != b'PAR1':
+                return path  # corrupt
+    except Exception as e:
+        return path  # if any error occurs, mark as corrupt
+    return None  # file is OK
 
-# Check if magic number is "PAR1" in hex
-if [ "$head" != "50415231" ] || [ "$tail" != "50415231" ]; then
-    echo "CORRUPT: $f"
-fi
-'
+def list_files_recursively(hdfs_dir):
+    """Recursively list all files under HDFS_DIR"""
+    files = []
+    for info in hdfs.get_file_info(fs.FileSelector(hdfs_dir, recursive=True)):
+        if info.is_file:
+            files.append(info.path)
+    return files
+
+def main():
+    files = list_files_recursively(HDFS_DIR)
+    corrupt_files = []
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        future_to_file = {executor.submit(is_corrupt, f): f for f in files}
+        for future in as_completed(future_to_file):
+            result = future.result()
+            if result:
+                corrupt_files.append(result)
+
+    print("CORRUPT files:")
+    for f in corrupt_files:
+        print(f)
+
+if __name__ == "__main__":
+    main()
