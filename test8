@@ -1,28 +1,33 @@
 #!/bin/bash
-# check_parquet_parallel.sh
-# Kullanım: ./check_parquet_parallel.sh /user/ali <paralel_sayı>
-# Örnek: ./check_parquet_parallel.sh /user/ali 10
+# check_parquet_parallel_clean.sh
+# Usage: ./check_parquet_parallel_clean.sh /user/ali <parallel_jobs>
+# Example: ./check_parquet_parallel_clean.sh /user/ali 10
 
 HDFS_PATH=$1
-PARALLEL=${2:-5}   # paralel iş sayısı, default 5
+PARALLEL=${2:-5}   # Number of parallel jobs, default 5
 
-# HDFS altındaki tüm dosyaları listele
+# List all files recursively under HDFS_PATH and check them in parallel
 hdfs dfs -ls -R "$HDFS_PATH" | awk '{print $8}' | \
-xargs -n 1 -P $PARALLEL -I {} bash -c '
-    f="{}"
-    # Dosya boyutu
-    len=$(hdfs dfs -stat %b "$f" 2>/dev/null)
-    if [ -z "$len" ] || [ "$len" -lt 8 ]; then
-        echo "CORRUPT: $f (too small or stat failed)"
-        exit 0
-    fi
+xargs -n 1 -P "$PARALLEL" bash -c '
+f="$0"
 
-    # İlk 4 byte
-    head=$(hdfs dfs -cat "$f" | dd bs=1 count=4 2>/dev/null | xxd -p)
-    # Son 4 byte
-    tail=$(hdfs dfs -cat "$f" | dd bs=1 skip=$((len-4)) count=4 2>/dev/null | xxd -p)
+# Get file size in bytes
+len=$(hdfs dfs -stat %b "$f" 2>/dev/null)
 
-    if [ "$head" != "50415231" ] || [ "$tail" != "50415231" ]; then
-        echo "CORRUPT: $f"
-    fi
+# If file size is empty or less than 8 bytes, mark as corrupt
+if [ -z "$len" ] || [ "$len" -lt 8 ]; then
+    echo "CORRUPT: $f (too small or stat failed)"
+    exit 0
+fi
+
+# Read first 4 bytes (magic number)
+head=$(hdfs dfs -cat "$f" | dd bs=1 count=4 2>/dev/null | xxd -p)
+
+# Read last 4 bytes (magic number)
+tail=$(hdfs dfs -cat "$f" | dd bs=1 skip=$((len-4)) count=4 2>/dev/null | xxd -p)
+
+# Check if magic number is "PAR1" in hex
+if [ "$head" != "50415231" ] || [ "$tail" != "50415231" ]; then
+    echo "CORRUPT: $f"
+fi
 '
