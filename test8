@@ -1,0 +1,10 @@
+hdfs dfs -ls -R /user/ali | grep ".parquet" | awk '{print $8}' | \
+while read f; do
+    # Dosyanın ilk ve son 4 byte'ını direkt HDFS'ten oku
+    head=$(hdfs dfs -cat $f | head -c 4 | xxd -p)
+    tail=$(hdfs dfs -cat $f | tail -c 4 | xxd -p)
+
+    if [ "$head" != "50415231" ] || [ "$tail" != "50415231" ]; then
+        echo "CORRUPT: $f"
+    fi
+done
