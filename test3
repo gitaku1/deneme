@@ -1,7 +1,7 @@
 from pyspark.sql import SparkSession
 from py4j.protocol import Py4JJavaError
 
-# Spark session oluştur
+# Create Spark session
 spark = SparkSession.builder \
     .appName("ParquetFooterCheck") \
     .getOrCreate()
@@ -11,36 +11,36 @@ hadoop_conf = sc._jsc.hadoopConfiguration()
 fs = sc._jvm.org.apache.hadoop.fs.FileSystem.get(hadoop_conf)
 Path = sc._jvm.org.apache.hadoop.fs.Path
 
-# Taranacak dizin
+# Directory to scan
 base_path = "hdfs://namenode:8020/user/data/"
 
-# HDFS'teki tüm dosyaları listele
+# List all files in HDFS directory
 file_list = []
 for f in fs.listStatus(Path(base_path)):
     path_str = f.getPath().toString()
     if path_str.endswith(".parquet") or ".c000" in path_str:
         file_list.append(path_str)
 
-print(f"Toplam {len(file_list)} dosya bulundu")
+print(f"Total {len(file_list)} files found")
 
 bad_files = []
 
 for file in file_list:
     try:
-        # sadece metadata okumak için schema çekiyoruz
+        # Only read metadata by loading schema
         df = spark.read.parquet(file)
-        df.schema  # tetikle
+        _ = df.schema  # trigger schema read
     except Py4JJavaError as e:
-        print(f"[HATA] Footer okunamadı: {file}")
+        print(f"[ERROR] Could not read footer: {file}")
         bad_files.append(file)
 
-# Hatalı dosyaları HDFS'e veya local dosyaya yaz
+# Write bad files to local file
 if bad_files:
     with open("bad_files.txt", "w") as out:
         for bf in bad_files:
             out.write(bf + "\n")
-    print(f"{len(bad_files)} hatalı dosya bulundu. bad_files.txt içine yazıldı.")
+    print(f"{len(bad_files)} corrupted files found. Written to bad_files.txt")
 else:
-    print("Tüm dosyalar sağlıklı görünüyor.")
+    print("All files appear to be healthy.")
 
 spark.stop()
