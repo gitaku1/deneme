@@ -1,22 +1,45 @@
-from transformers import AutoTokenizer, AutoModel
-import torch
+-- 1️⃣ Parametreler
+DEFINE DB_NAME = 'DB_NAME';        -- Silmek istediğin DB
+DEFINE TABLE_NAME = 'TABLE_NAME';  -- Silmek istediğin tablo
 
-# 1. Modelin klasörünü belirt (modeli indirdiğin dizin)
-model_path = "/veri01/huggingface/nomic-ai/nomic-embed-text-v2-moe"
+-- 2️⃣ DB_ID ve TBL_ID'yi bul
+VARIABLE DB_ID NUMBER;
+VARIABLE TBL_ID NUMBER;
 
-# 2. Tokenizer ve model yükle
-tokenizer = AutoTokenizer.from_pretrained(model_path)
-model = AutoModel.from_pretrained(model_path)
+BEGIN
+    SELECT DB_ID INTO :DB_ID FROM DBS WHERE NAME = '&DB_NAME';
+    SELECT TBL_ID INTO :TBL_ID FROM TBLS WHERE TBL_NAME = '&TABLE_NAME' AND DB_ID = :DB_ID;
+END;
+/
 
-# 3. Örnek metin
-text = "Bu modeli doğru şekilde yükledim mi?"
+-- 3️⃣ Partition ID’lerini geçici tabloya al
+CREATE GLOBAL TEMPORARY TABLE TMP_PART_IDS (PART_ID NUMBER) ON COMMIT PRESERVE ROWS;
 
-# 4. Tokenize et
-inputs = tokenizer(text, return_tensors="pt")
+INSERT INTO TMP_PART_IDS (PART_ID)
+SELECT PART_ID FROM PARTITIONS WHERE TBL_ID = :TBL_ID;
 
-# 5. Modeli çalıştır
-with torch.no_grad():
-    outputs = model(**inputs)
+COMMIT;
 
-# 6. Sonuçları göster
-print("Model çıktı shape:", outputs.last_hidden_state.shape)
+-- 4️⃣ Bozuk privilege kayıtlarını sil
+DELETE FROM MPartitionPrivilege WHERE PART_ID IN (SELECT PART_ID FROM TMP_PART_IDS);
+DELETE FROM MTablePrivilege WHERE TBL_ID = :TBL_ID;
+
+COMMIT;
+
+-- 5️⃣ Partition ve storage kayıtlarını temizle
+DELETE FROM PARTITIONS WHERE TBL_ID = :TBL_ID;
+DELETE FROM SDS WHERE SD_ID IN (SELECT SD_ID FROM TBLS WHERE TBL_ID = :TBL_ID);
+
+COMMIT;
+
+-- 6️⃣ Tablo kaydını sil
+DELETE FROM TBLS WHERE TBL_ID = :TBL_ID;
+
+COMMIT;
+
+-- 7️⃣ Geçici tabloyu temizle
+DROP TABLE TMP_PART_IDS;
+
+-- 8️⃣ Hue / Impala tarafında metadata’yı yenile
+-- Impala terminalinde:
+-- invalidate metadata;
