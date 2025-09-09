@@ -1,11 +1,14 @@
-# Row group sayısını öğrenmek için metadata
-ROW_GROUPS=$(hadoop jar parquet-tools-1.10.99.7.1.9.16-2.jar meta hdfs://namenode:8020/user/data/your_file.parquet \
-             | grep "row group" | wc -l)
+for file in $(hdfs dfs -ls hdfs://namenode:8020/user/data/ | awk '{print $8}' | grep '\.parquet$'); do
+    echo "Checking file: $file"
 
-echo "Row group sayısı: $ROW_GROUPS"
+    # Row group sayısını öğren
+    ROW_GROUPS=$(hadoop jar parquet-tools-1.10.99.7.1.9.16-2.jar meta $file | grep "row group" | wc -l)
+    echo "Row groups: $ROW_GROUPS"
 
-# Sadece ilk N row group’u hızlıca kontrol et
-for i in $(seq 0 49); do
-    hadoop jar parquet-tools-1.10.99.7.1.9.16-2.jar meta hdfs://namenode:8020/user/data/your_file.parquet --row-group $i \
-        2>/dev/null | head -n 20
+    # İlk 50 row-group’u kontrol et
+    for i in $(seq 0 49); do
+        if [ $i -lt $ROW_GROUPS ]; then
+            hadoop jar parquet-tools-1.10.99.7.1.9.16-2.jar meta $file --row-group $i 2>/dev/null | head -n 20
+        fi
+    done
 done
