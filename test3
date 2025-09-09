@@ -1,14 +1,46 @@
-for file in $(hdfs dfs -ls hdfs://namenode:8020/user/data/ | awk '{print $8}' | grep '\.parquet$'); do
-    echo "Checking file: $file"
+from pyspark.sql import SparkSession
+from py4j.protocol import Py4JJavaError
 
-    # Row group sayısını öğren
-    ROW_GROUPS=$(hadoop jar parquet-tools-1.10.99.7.1.9.16-2.jar meta $file | grep "row group" | wc -l)
-    echo "Row groups: $ROW_GROUPS"
+# Spark session oluştur
+spark = SparkSession.builder \
+    .appName("ParquetFooterCheck") \
+    .getOrCreate()
 
-    # İlk 50 row-group’u kontrol et
-    for i in $(seq 0 49); do
-        if [ $i -lt $ROW_GROUPS ]; then
-            hadoop jar parquet-tools-1.10.99.7.1.9.16-2.jar meta $file --row-group $i 2>/dev/null | head -n 20
-        fi
-    done
-done
+sc = spark.sparkContext
+hadoop_conf = sc._jsc.hadoopConfiguration()
+fs = sc._jvm.org.apache.hadoop.fs.FileSystem.get(hadoop_conf)
+Path = sc._jvm.org.apache.hadoop.fs.Path
+
+# Taranacak dizin
+base_path = "hdfs://namenode:8020/user/data/"
+
+# HDFS'teki tüm dosyaları listele
+file_list = []
+for f in fs.listStatus(Path(base_path)):
+    path_str = f.getPath().toString()
+    if path_str.endswith(".parquet") or ".c000" in path_str:
+        file_list.append(path_str)
+
+print(f"Toplam {len(file_list)} dosya bulundu")
+
+bad_files = []
+
+for file in file_list:
+    try:
+        # sadece metadata okumak için schema çekiyoruz
+        df = spark.read.parquet(file)
+        df.schema  # tetikle
+    except Py4JJavaError as e:
+        print(f"[HATA] Footer okunamadı: {file}")
+        bad_files.append(file)
+
+# Hatalı dosyaları HDFS'e veya local dosyaya yaz
+if bad_files:
+    with open("bad_files.txt", "w") as out:
+        for bf in bad_files:
+            out.write(bf + "\n")
+    print(f"{len(bad_files)} hatalı dosya bulundu. bad_files.txt içine yazıldı.")
+else:
+    print("Tüm dosyalar sağlıklı görünüyor.")
+
+spark.stop()
