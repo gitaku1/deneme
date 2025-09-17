@@ -1,49 +1,49 @@
-#!/bin/bash
-set -e
+# Base image olarak R ve Dataiku dependencies içeren bir Linux kullanıyoruz
+FROM rockylinux:8
 
-USER=dataiku
-HOME=/home/dataiku
-export XDG_CONFIG_DIRS="$HOME/workspace/user-versioned/settings/rstudio"
+# Root olarak devam
+USER root
 
-# Initial config set-up (sadece ilk başlatmada)
-if [ ! -d "$XDG_CONFIG_DIRS/rstudio" ]; then
-    mkdir -p "$XDG_CONFIG_DIRS/rstudio"
-    cat << 'EOF' > "$XDG_CONFIG_DIRS/rstudio/rstudio-prefs.json"
-{
-  "initial_working_directory": "/home/dataiku/workspace",
-  "posix_terminal_shell": "bash"
-}
-EOF
-fi
+# Temel paketler ve RStudio Server için gerekli kütüphaneler
+RUN yum update -y && \
+    yum install -y \
+    wget \
+    sudo \
+    libX11 \
+    libXt \
+    libpng \
+    libjpeg-turbo \
+    libtiff \
+    openssl \
+    libuuid \
+    bzip2 \
+    tar \
+    gzip \
+    bash \
+    which \
+    && yum clean all
 
-# Add all the code envs to R (varsa)
-if [ -d "/opt/dataiku/r-code-envs" ]; then
-    for i in $(ls -r /opt/dataiku/r-code-envs); do
-        echo "Adding code env $i"
-        export R_LIBS_USER="/opt/dataiku/r-code-envs/$i/R.lib:$R_LIBS_USER"
-    done
-fi
+# Dataiku user oluştur ve UID/ GID ayarla
+RUN groupadd -g 500 dataiku && \
+    useradd -m -u 500 -g 500 -s /bin/bash dataiku
 
-# Pass env vars to Studio
-env | egrep "DKU_(DIP|R_LIBS_USER|XDG_CONFIG)" > "$HOME/.Renviron"
+# RStudio Server binary ve script kopyala
+COPY rstudio-entrypoint.sh /opt/dataiku/rstudio-entrypoint.sh
+RUN chmod +x /opt/dataiku/rstudio-entrypoint.sh
 
-# Base URI / Bind address
-BASE_URI=$(eval echo "SDKU_CODE_STUDIO_BROWSER_PATH_9292")
-if [ "${SDKU_CODE_STUDIO_IS_PUBLIC_PORT_9292}" = "1" ]; then
-    BIND_ADDR="0.0.0.0"
-else
-    BIND_ADDR="127.0.0.1"
-fi
+# RStudio Server için gerekli dizinler
+RUN mkdir -p /home/dataiku/.rstudio-server-run \
+    && mkdir -p /home/dataiku/workspace/user-versioned/settings/rstudio/rstudio \
+    && chown -R dataiku:dataiku /home/dataiku/.rstudio-server-run \
+    && chown -R dataiku:dataiku /home/dataiku/workspace \
+    && chmod -R 700 /home/dataiku/.rstudio-server-run \
+    && chmod -R 700 /home/dataiku/workspace
 
-# Start RStudio Server as dataiku
-exec /usr/lib/rstudio-server/bin/rserver \
-    --server-daemonize=0 \
-    --auth-none=1 \
-    --www-address="$BIND_ADDR" \
-    --www-port=9292 \
-    --auth-minimum-user-id=500 \
-    --www-frame-origin="*" \
-    --www-root-path="$BASE_URI" \
-    --server-user=dataiku \
-    --server-data-dir="$HOME/.rstudio-server-run" \
-    --server-pid-file="$HOME/.rstudio-server.pid"
+# R code envs klasörü (varsa)
+RUN mkdir -p /opt/dataiku/r-code-envs && chown -R dataiku:dataiku /opt/dataiku/r-code-envs
+
+# Port aç
+EXPOSE 9292
+
+# Entrypoint
+ENTRYPOINT ["/opt/dataiku/rstudio-entrypoint.sh"]
