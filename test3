@@ -1,46 +1,43 @@
-from pyspark.sql import SparkSession
-from py4j.protocol import Py4JJavaError
+FROM rockylinux:8
 
-# Create Spark session
-spark = SparkSession.builder \
-    .appName("ParquetFooterCheck") \
-    .getOrCreate()
+# Root olarak başla
+USER root
 
-sc = spark.sparkContext
-hadoop_conf = sc._jsc.hadoopConfiguration()
-fs = sc._jvm.org.apache.hadoop.fs.FileSystem.get(hadoop_conf)
-Path = sc._jvm.org.apache.hadoop.fs.Path
+# Gerekli paketler
+RUN dnf -y install epel-release && \
+    dnf -y install \
+      R \
+      wget \
+      sudo \
+      libcurl-devel \
+      openssl-devel \
+      libxml2-devel \
+      && dnf clean all
 
-# Directory to scan
-base_path = "hdfs://namenode:8020/user/data/"
+# RStudio Server rpm indir ve kur
+RUN wget https://download2.rstudio.org/server/centos8/x86_64/rstudio-server-rhel-2024.09.1-394-x86_64.rpm -O /tmp/rstudio-server.rpm && \
+    dnf -y install /tmp/rstudio-server.rpm && \
+    rm -f /tmp/rstudio-server.rpm
 
-# List all files in HDFS directory
-file_list = []
-for f in fs.listStatus(Path(base_path)):
-    path_str = f.getPath().toString()
-    if path_str.endswith(".parquet") or ".c000" in path_str:
-        file_list.append(path_str)
+# dataiku kullanıcısını oluştur (UID/GID sen ayarlayabilirsin, ben 1000 verdim)
+RUN useradd -m -u 1000 -d /home/dataiku dataiku && \
+    echo "dataiku:dataiku" | chpasswd && \
+    echo "dataiku ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-print(f"Total {len(file_list)} files found")
+# Ortam değişkenleri
+ENV USER=dataiku \
+    HOME=/home/dataiku \
+    XDG_CONFIG_DIRS=/home/dataiku/workspace/user-versioned/settings/rstudio
 
-bad_files = []
+# Entrypoint script kopyala
+COPY rstudio-entrypoint.sh /usr/local/bin/rstudio-entrypoint.sh
+RUN chmod +x /usr/local/bin/rstudio-entrypoint.sh && \
+    chown dataiku:dataiku /usr/local/bin/rstudio-entrypoint.sh
 
-for file in file_list:
-    try:
-        # Only read metadata by loading schema
-        df = spark.read.parquet(file)
-        _ = df.schema  # trigger schema read
-    except Py4JJavaError as e:
-        print(f"[ERROR] Could not read footer: {file}")
-        bad_files.append(file)
+# dataiku kullanıcısına geç
+USER dataiku
+WORKDIR /home/dataiku
 
-# Write bad files to local file
-if bad_files:
-    with open("bad_files.txt", "w") as out:
-        for bf in bad_files:
-            out.write(bf + "\n")
-    print(f"{len(bad_files)} corrupted files found. Written to bad_files.txt")
-else:
-    print("All files appear to be healthy.")
+EXPOSE 9292
 
-spark.stop()
+ENTRYPOINT ["/usr/local/bin/rstudio-entrypoint.sh"]
