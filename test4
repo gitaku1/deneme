@@ -1,44 +1,51 @@
-FROM rockylinux:8   # veya istediğin Linux base image
+#!/bin/bash
+# RStudio Server başlangıç scripti - root üzerinden çalışacak
+set -e
 
-# Root olarak başla
-USER root
+USER=dataiku
+HOME=/home/dataiku
+export XDG_CONFIG_DIRS=$HOME/workspace/user-versioned/settings/rstudio
 
-# R ve gerekli bağımlılıkları kur
-RUN yum install -y \
-    R \
-    sudo \
-    wget \
-    openssl \
-    libuuid \
-    psmisc \
-    which \
-    && yum clean all
+# Config dizini yoksa oluştur
+if [ ! -d "$HOME/workspace/user-versioned/settings/rstudio" ]; then
+    mkdir -p $HOME/workspace/user-versioned/settings/rstudio/rstudio
+    cat << 'EOF' > $HOME/workspace/user-versioned/settings/rstudio/rstudio/rstudio-prefs.json
+{
+    "initial_working_directory": "/home/dataiku/workspace",
+    "posix_terminal_shell": "bash"
+}
+EOF
+    chown -R $USER:$USER $HOME/workspace/user-versioned/settings/rstudio
+fi
 
-# dataiku kullanıcısı oluştur
-RUN useradd -ms /bin/bash dataiku
+# R code envs ekle
+if [ -d /opt/dataiku/r-code-envs ]; then
+    for envdir in /opt/dataiku/r-code-envs/*; do
+        if [ -d "$envdir/R.lib" ]; then
+            export R_LIBS_USER=$envdir/R.lib:$R_LIBS_USER
+        fi
+    done
+fi
 
-# Scriptin ihtiyaç duyduğu dizinleri oluştur
-RUN mkdir -p /opt/dataiku/r-code-envs \
-    && mkdir -p /home/dataiku/workspace/user-versioned/settings/rstudio/rstudio \
-    && mkdir -p /home/dataiku/.rstudio-server-run \
-    && chown -R dataiku:dataiku /home/dataiku /opt/dataiku/r-code-envs
+# Passthrough environment variables
+env | egrep "DKU_(DIP|R_LIBS_USER|XDG_CONFIG)" > $HOME/.Renviron
 
-# RStudio Server rpm indir ve kur (RHEL/CentOS 8 için örnek)
-RUN wget https://download2.rstudio.org/server/centos8/x86_64/rstudio-server-rhel-2024.09.1-394-x86_64.rpm -O /tmp/rstudio-server.rpm && \
-    yum install -y /tmp/rstudio-server.rpm && \
-    rm -f /tmp/rstudio-server.rpm
+# Bind address ayarı
+if [ "$DKU_CODE_STUDIO_IS_PUBLIC_PORT_9292" = "1" ]; then
+    BIND_ADDR="0.0.0.0"
+else
+    BIND_ADDR="127.0.0.1"
+fi
 
-# rstudio-entrypoint.sh'yi image içine kopyala
-COPY rstudio-entrypoint.sh /opt/dataiku/rstudio-entrypoint.sh
-RUN chmod +x /opt/dataiku/rstudio-entrypoint.sh \
-    && chown dataiku:dataiku /opt/dataiku/rstudio-entrypoint.sh
-
-# Çalışma dizini ve kullanıcı ayarı
-USER dataiku
-WORKDIR /home/dataiku
-
-# RStudio Server portu
-EXPOSE 9292
-
-# Entrypoint
-ENTRYPOINT ["/opt/dataiku/rstudio-entrypoint.sh"]
+# RStudio Server başlat
+exec /usr/lib/rstudio-server/bin/rserver \
+    --server-daemonize=0 \
+    --auth-none=1 \
+    --www-address=$BIND_ADDR \
+    --www-port=9292 \
+    --auth-minimum-user-id=500 \
+    --server-user=$USER \
+    --server-data-dir=$HOME/.rstudio-server-run \
+    --server-pid-file=$HOME/.rstudio-server.pid \
+    --www-frame-origin=* \
+    --www-root-path=/
