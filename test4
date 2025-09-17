@@ -1,42 +1,36 @@
 #!/bin/bash
+set -e
 
-BASEURL="https://hostname:443/"
-AUTH="user:pass"
+export XDG_CONFIG_DIRS=/home/dataiku/workspace/user-versioned/settings/rstudio
 
-total_size=0
-
-function get_size() {
-  local url="$1"
-  # HEAD isteği ile Content-Length al
-  local size=$(curl -s -u $AUTH -k -I "$url" | grep -i "^Content-Length:" | awk '{print $2}' | tr -d '\r')
-  echo "${size:-0}"
+# Initial config (ilk defa başlatılıyorsa ayarla)
+if [ ! -d "/home/dataiku/workspace/user-versioned/settings/rstudio/rstudio" ]; then
+    mkdir -p /home/dataiku/workspace/user-versioned/settings/rstudio/rstudio
+    cat <<EOF > /home/dataiku/workspace/user-versioned/settings/rstudio/rstudio/rstudio-prefs.json
+{
+  "initial_working_directory": "/home/dataiku/workspace",
+  "posix_terminal_shell": "bash"
 }
+EOF
+fi
 
-function crawl() {
-  local url="$1"
-  echo "Checking $url"
-  # Sayfadaki href linklerini çek
-  links=$(curl -s -u $AUTH -k "$url" | grep -oP '(?<=href=")[^"]+' | grep -vE '^(\.\./|/$)')
-  
-  for link in $links; do
-    # URL tamamla
-    full_url="${url}${link}"
-    
-    # Öncelikle dene, bu URL bir dizin mi (HTML içerik dönüyor mu) yoksa dosya mı (HEAD ile Content-Length var mı)
-    content_type=$(curl -s -u $AUTH -k -I "$full_url" | grep -i "^Content-Type:" | awk '{print $2}' | tr -d '\r')
-    
-    if [[ "$content_type" == "text/html" ]]; then
-      # Dizin ise sonuna / koy ve recursive devam et
-      crawl "${full_url}/"
-    else
-      # Dosya ise boyut al
-      size=$(get_size "$full_url")
-      echo "File: $full_url Size: $size"
-      total_size=$((total_size + size))
-    fi
+# R code env’leri ekle (varsa)
+if [ -d "/opt/dataiku/r-code-envs" ]; then
+  for i in $(ls -r /opt/dataiku/r-code-envs); do
+    echo "Adding code env $i"
+    export R_LIBS_USER="/opt/dataiku/r-code-envs/$i/R.lib:$R_LIBS_USER"
   done
-}
+fi
 
-crawl "$BASEURL"
+# Logging conf varsa bilgi ver
+if [ -f "/home/dataiku/workspace/user-versioned/settings/rstudio/rstudio/logging.conf" ]; then
+    echo "Logging configuration loaded from /home/dataiku/workspace/user-versioned/settings/rstudio/rstudio/logging.conf"
+fi
 
-echo "Toplam Boyut (Bayt): $total_size => $(echo "scale=2; $total_size/1024/1024" | bc) MB"
+# RStudio server’ı dataiku olarak başlat
+exec /usr/lib/rstudio-server/bin/rserver \
+    --server-daemonize=0 \
+    --server-user=dataiku \
+    --www-port=8787 \
+    --www-address=0.0.0.0 \
+    --auth-none=1
