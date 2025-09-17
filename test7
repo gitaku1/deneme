@@ -1,28 +1,49 @@
-import pyarrow.parquet as pq
+#!/bin/bash
+set -e
 
-try:
-    # Tüm row group'ları teker teker okuyarak kurtarma
-    pf = pq.ParquetFile("bozuk.parq")
-    for i in range(pf.num_row_groups):
-        try:
-            batch = pf.read_row_group(i)
-            pq.write_table(batch, f"repaired_part_{i}.parq")
-            print(f"✅ RowGroup {i} kurtarıldı ({batch.num_rows} satır)")
-        except Exception as e:
-            print(f"❌ RowGroup {i} atlandı: {str(e)}")
-except Exception as e:
-    print(f"🚨 Dosya açılamadı: {str(e)}")
+USER=dataiku
+HOME=/home/dataiku
+export XDG_CONFIG_DIRS="$HOME/workspace/user-versioned/settings/rstudio"
 
+# Initial config set-up (sadece ilk başlatmada)
+if [ ! -d "$XDG_CONFIG_DIRS/rstudio" ]; then
+    mkdir -p "$XDG_CONFIG_DIRS/rstudio"
+    cat << 'EOF' > "$XDG_CONFIG_DIRS/rstudio/rstudio-prefs.json"
+{
+  "initial_working_directory": "/home/dataiku/workspace",
+  "posix_terminal_shell": "bash"
+}
+EOF
+fi
 
+# Add all the code envs to R (varsa)
+if [ -d "/opt/dataiku/r-code-envs" ]; then
+    for i in $(ls -r /opt/dataiku/r-code-envs); do
+        echo "Adding code env $i"
+        export R_LIBS_USER="/opt/dataiku/r-code-envs/$i/R.lib:$R_LIBS_USER"
+    done
+fi
 
-from pyspark.sql import SparkSession
+# Pass env vars to Studio
+env | egrep "DKU_(DIP|R_LIBS_USER|XDG_CONFIG)" > "$HOME/.Renviron"
 
-spark = SparkSession.builder.appName("RepairParquet").getOrCreate()
+# Base URI / Bind address
+BASE_URI=$(eval echo "SDKU_CODE_STUDIO_BROWSER_PATH_9292")
+if [ "${SDKU_CODE_STUDIO_IS_PUBLIC_PORT_9292}" = "1" ]; then
+    BIND_ADDR="0.0.0.0"
+else
+    BIND_ADDR="127.0.0.1"
+fi
 
-try:
-    df = spark.read.parquet("hdfs:///hdfs/path/to/broken.parq")
-    df.limit(100).show()  # varsa veri döner
-    df.write.mode("overwrite").parquet("hdfs:///repaired/path/broken_fixed.parq")
-    print("✅ Parquet dosyası yeniden yazıldı")
-except Exception as e:
-    print("❌ Okunamıyor:", str(e))
+# Start RStudio Server as dataiku
+exec /usr/lib/rstudio-server/bin/rserver \
+    --server-daemonize=0 \
+    --auth-none=1 \
+    --www-address="$BIND_ADDR" \
+    --www-port=9292 \
+    --auth-minimum-user-id=500 \
+    --www-frame-origin="*" \
+    --www-root-path="$BASE_URI" \
+    --server-user=dataiku \
+    --server-data-dir="$HOME/.rstudio-server-run" \
+    --server-pid-file="$HOME/.rstudio-server.pid"
