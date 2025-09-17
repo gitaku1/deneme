@@ -1,77 +1,60 @@
-import pyarrow.fs as fs
-from concurrent.futures import ThreadPoolExecutor, as_completed
+# AlmaLinux 8 tabanlı bir imaj kullanıyoruz
+FROM almalinux:8
 
-# -----------------------------
-# HDFS Connection
-# -----------------------------
-# Replace with your HDFS URI (from `hdfs getconf -confKey fs.defaultFS`)
-HDFS_URI = "hdfs://ali-namenode"
+# Proxy ayarlarını yapılandırıyoruz
+ENV http_proxy=http://hostname:8080
+ENV https_proxy=http://hostname:8080
 
-# Number of parallel threads
-MAX_WORKERS = 10
+# Gerekli sistem bağımlılıklarını yüklüyoruz
+RUN dnf -y update && \
+    dnf -y install \
+    epel-release \
+    gcc \
+    gcc-c++ \
+    gcc-gfortran \
+    make \
+    wget \
+    curl \
+    git \
+    vim \
+    tar \
+    gzip \
+    bzip2 \
+    xz \
+    pcre2 \
+    pcre2-devel \
+    libcurl-devel \
+    libpng-devel \
+    libjpeg-turbo-devel \
+    libtiff-devel \
+    cairo-devel \
+    pango-devel \
+    freetype-devel \
+    texinfo-devel \
+    texlive-scheme-basic \
+    zlib-devel \
+    bzip2-devel \
+    xz-devel \
+    readline-devel \
+    ncurses-devel \
+    openssl-devel \
+    libssh2-devel \
+    sqlite-devel \
+    libuuid-devel \
+    tcl-devel \
+    tk-devel \
+    java-1.8.0-openjdk-devel && \
+    dnf clean all
 
-try:
-    # PyArrow >= 11 returns a single object, no unpacking needed
-    hdfs = fs.HadoopFileSystem.from_uri(HDFS_URI)
-except Exception as e:
-    print("Error connecting to HDFS:", e)
-    exit(1)
+# R 4.5.1'i kaynak koddan indirip kuruyoruz
+RUN wget https://cran.r-project.org/src/base/R-4/R-4.5.1.tar.gz && \
+    tar -xzf R-4.5.1.tar.gz && \
+    cd R-4.5.1 && \
+    ./configure --enable-R-shlib --with-x=yes --with-cairo --with-libpng --with-jpeglib && \
+    make -j$(nproc) && \
+    make install && \
+    cd .. && \
+    rm -rf R-4.5.1 R-4.5.1.tar.gz
 
-# -----------------------------
-# Helper functions
-# -----------------------------
-def is_corrupt(path):
-    """
-    Check if a file is corrupt by reading first and last 4 bytes.
-    Returns the path if corrupt, None if OK.
-    """
-    try:
-        with hdfs.open_input_file(path) as f:
-            size = f.size
-            if size < 8:
-                return path  # too small, consider corrupt
-
-            # Read first 4 bytes
-            head = f.read(4)
-            # Read last 4 bytes
-            f.seek(size - 4)
-            tail = f.read(4)
-
-            if head != b'PAR1' or tail != b'PAR1':
-                return path  # corrupt
-    except Exception:
-        # Any exception is treated as corrupt
-        return path
-    return None  # file is OK
-
-def list_files_recursively(hdfs_dir):
-    """
-    Recursively list all files under HDFS_DIR
-    """
-    files = []
-    for info in hdfs.get_file_info(fs.FileSelector(hdfs_dir, recursive=True)):
-        if info.is_file:
-            files.append(info.path)
-    return files
-
-# -----------------------------
-# Main execution
-# -----------------------------
-def main():
-    files = list_files_recursively("/user/ali")
-    corrupt_files = []
-
-    # Use ThreadPoolExecutor for parallelism
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        future_to_file = {executor.submit(is_corrupt, f): f for f in files}
-        for future in as_completed(future_to_file):
-            result = future.result()
-            if result:
-                corrupt_files.append(result)
-
-    print("\nCORRUPT files found:")
-    for f in corrupt_files:
-        print(f)
-
-if __name__ == "__main__":
-    main()
+# R'nin doğru kurulduğunu kontrol ediyoruz
+RUN R --version
