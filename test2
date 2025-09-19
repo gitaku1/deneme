@@ -1,86 +1,29 @@
-import asyncio
-import os
-from pyppeteer import launch
-from nbconvert import HTMLExporter
-import nbformat
+from dataiku.core.model_provider import get_model_from_cache
+from transformers import pipeline, AutoTokenizer, AutoModelForQuestionAnswering
 
-# 1. Girdi defteri (senin notebook dosyan)
-notebook_path = "defterim.ipynb"  # kendi dosya adını buraya yaz
-html_path = "gecici.html"
-pdf_path = "cikti.pdf"
-chrome_path = "/veri01/chrome-linux/chrome"  # senin Chrome yolun
+# Model ismini kullan – Dataiku Cache içinde bu modelin import edilmiş olması gerekiyor
+model_name = "deepset/bert-base-cased-squad2"
 
-# 2. Notebook'u HTML'e dönüştür
-print("Notebook HTML'e dönüştürülüyor...")
-with open(notebook_path) as f:
-    nb_node = nbformat.read(f, as_version=4)
+# Cache’den modelin path’ini al
+model_path = get_model_from_cache(model_name)
 
-html_exporter = HTMLExporter()
-body, _ = html_exporter.from_notebook_node(nb_node)
+# Cache’den model ve tokenizer'ı yükle
+tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
+model = AutoModelForQuestionAnswering.from_pretrained(model_path, local_files_only=True)
 
-# 3. Geniş tablolar için CSS ekle (scroll yerine genişlik kısıtlamasını kaldırıyoruz)
-extra_css = """
-<style>
-/* Tüm hücreleri ve tabloları düzgünce sayfaya sığdır */
-.output pre, .output_area pre {
-    white-space: pre-wrap;
-    word-wrap: break-word;
-}
+# Pipeline oluştur
+qa = pipeline("question-answering", model=model, tokenizer=tokenizer)
 
-/* Geniş tabloları sayfa genişliğine zorla */
-.output_area table {
-    display: block;
-    width: 100%;
-    overflow-x: auto;
-    font-size: 10pt;
-    word-break: break-word;
-}
+# Prompt denemesi
+context = "Dataiku DSS is a collaborative data science platform."
+question = "What kind of platform is Dataiku DSS?"
 
-/* Kod hücreleri ve yazılar için yazı boyutunu azalt */
-div.cell {
-    font-size: 10pt;
-}
-</style>
-"""
+result = qa({
+    "context": context,
+    "question": question
+})
 
-body = body.replace('</head>', extra_css + '</head>')
-
-with open(html_path, 'w', encoding='utf-8') as f:
-    f.write(body)
-
-print(f"HTML dosyası oluşturuldu: {html_path}")
-
-# 4. PDF'e dönüştürme fonksiyonu
-async def html_to_pdf():
-    print("Chrome başlatılıyor...")
-    browser = await launch(
-        executablePath=chrome_path,
-        headless=True,
-        args=["--no-sandbox"]
-    )
-    page = await browser.newPage()
-
-    file_url = f'file://{os.path.abspath(html_path)}'
-    print(f"HTML yükleniyor: {file_url}")
-    await page.goto(file_url, {'waitUntil': 'networkidle0'})
-
-    # PDF oluşturuluyor
-    print("PDF dosyası oluşturuluyor (yatay sayfa)...")
-    await page.pdf({
-        'path': pdf_path,
-        'format': 'A4',
-        'printBackground': True,
-        'landscape': True,  # 🔥 yatay sayfa formatı
-        'scale': 0.9,       # biraz küçülterek sığdır
-        'margin': {
-            'top': '0.5in',
-            'bottom': '0.5in',
-            'left': '0.5in',
-            'right': '0.5in'
-        }
-    })
-    await browser.close()
-    print(f"PDF başarıyla oluşturuldu: {pdf_path}")
-
-# 5. PDF oluştur
-asyncio.get_event_loop().run_until_complete(html_to_pdf())
+print("Answer:", result.get("answer"))
+print("Score:", result.get("score"))
+print("Start:", result.get("start"))
+print("End:", result.get("end"))
