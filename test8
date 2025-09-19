@@ -1,4 +1,41 @@
-RUN wget https://almalinux.mirrors.orange.ro/almalinux/8/AppStream/x86_64/os/Packages/java-1.8.0-openjdk-1.8.0.372.b07-1.el8.x86_64.rpm && \
-    wget https://almalinux.mirrors.orange.ro/almalinux/8/AppStream/x86_64/os/Packages/java-1.8.0-openjdk-devel-1.8.0.372.b07-1.el8.x86_64.rpm && \
-    dnf -y localinstall java-1.8.0-openjdk-*.rpm && \
-    rm -f java-1.8.0-openjdk-*.rpm
+from dataiku.core.model_provider import get_model_from_cache
+from transformers import TapasTokenizer, TapasForQuestionAnswering, pipeline
+import pandas as pd
+
+# Model adı
+model_name = "google/tapas-base-finetuned-wtq"
+
+# Model cache'den path alın
+model_path = get_model_from_cache(model_name)
+
+# Tokenizer ve model sadece yerel dosyalarla yüklensin
+tokenizer = TapasTokenizer.from_pretrained(model_path, local_files_only=True)
+model = TapasForQuestionAnswering.from_pretrained(model_path, local_files_only=True)
+
+# Table-question-answering pipeline oluştur
+tqa = pipeline("table-question-answering", model=model, tokenizer=tokenizer)
+
+# Örnek tablo oluştur (pandas DataFrame)
+data = {
+    "Country": ["France", "Germany", "Italy"],
+    "Capital": ["Paris", "Berlin", "Rome"],
+    "Population (millions)": ["67", "83", "60"]
+}
+table_df = pd.DataFrame(data)
+
+# Soru sorma fonksiyonu
+def ask_question_about_table(question, table):
+    result = tqa({
+        "table": table,
+        "query": question
+    })
+    return result
+
+# Örnek soru
+question = "What is the capital of Germany?"
+
+answer = ask_question_about_table(question, table_df)
+print("Question:", question)
+print("Answer:", answer.get("answer", None))
+print("Cells:", answer.get("cells", None))
+print("Aggregator:", answer.get("aggregator", None))
