@@ -27,3 +27,56 @@ print("Answer:", result.get("answer"))
 print("Score:", result.get("score"))
 print("Start:", result.get("start"))
 print("End:", result.get("end"))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Tüm Adımlar Bir Arada: Dataiku DSS Model Cache’den Cache’li HuggingFace Modeliyle Prompt Testi
+
+import os
+
+# 1. Offline modu zorla ve W&B entegrasyonunu kapat
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ["HF_DATASETS_OFFLINE"] = "1"
+os.environ["WANDB_DISABLED"] = "true"
+
+# 2. Dataiku DSS cache'den model yolunu al
+from dataiku.core.model_provider import get_model_from_cache
+model_name = "hf@gpt2"                        # DSS UI'da import ettiğiniz model anahtarı
+model_path = get_model_from_cache(model_name)
+
+# 3. Transformers pipeline'ını oluştur (internet bağlantısı olmadan)
+from transformers import pipeline, set_seed
+generator = pipeline(
+    "text-generation",
+    model=model_path,
+    tokenizer=model_path,
+    local_files_only=True,
+    trust_remote_code=False
+)
+
+# 4. Rastgeleliği sabitle
+set_seed(42)
+
+# 5. Prompt ile metin üret
+prompt = "Veri mühendisliğinde model cache kullanımı"
+outputs = generator(
+    prompt,
+    max_length=60,
+    num_return_sequences=1
+)
+
+# 6. Sonucu yazdır
+print(outputs[0]["generated_text"])
