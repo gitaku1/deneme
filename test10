@@ -23,6 +23,11 @@ CMD ["java","-jar","/opt/app/app.jar"]
 
 
 
+- Spark Driver: spark.driver.extraJavaOptions = -Dcom.sun.net.ssl.checkRevocation=false -Dsun.security.ssl.allowUnsafeRenegotiation=true -Djavax.net.ssl.trustStoreType=JKS -Dcom.sun.net.ssl.checkRevocation=false -DtrustAll=true -Djsse.enableSNI=false -Dcom.sun.net.ssl.disableHostnameVerification=true -Dorg.apache.spark.ssl.trustStore=/dev/null
+- Spark Executor: spark.executor.extraJavaOptions = -Dcom.sun.net.ssl.checkRevocation=false -Dsun.security.ssl.allowUnsafeRenegotiation=true -Djavax.net.ssl.trustStoreType=JKS -Dcom.sun.net.ssl.checkRevocation=false -DtrustAll=true -Djsse.enableSNI=false -Dcom.sun.net.ssl.disableHostnameVerification=true -Dorg.apache.spark.ssl.trustStore=/dev/null
+
+
+
 keytool -importcert -trustcacerts -alias k8s-api-ca -file server-ca.crt -keystore /opt/certs/custom-trust.jks -storepass MyTrustPass -noprompt
 
 JAVA_OPTS="-Djavax.net.ssl.trustStore=/opt/certs/custom-trust.jks -Djavax.net.ssl.trustStorePassword=MyTrustPass"
