@@ -26,7 +26,13 @@ CMD ["java","-jar","/opt/app/app.jar"]
 - Spark Driver: spark.driver.extraJavaOptions = -Dcom.sun.net.ssl.checkRevocation=false -Dsun.security.ssl.allowUnsafeRenegotiation=true -Djavax.net.ssl.trustStoreType=JKS -Dcom.sun.net.ssl.checkRevocation=false -DtrustAll=true -Djsse.enableSNI=false -Dcom.sun.net.ssl.disableHostnameVerification=true -Dorg.apache.spark.ssl.trustStore=/dev/null
 - Spark Executor: spark.executor.extraJavaOptions = -Dcom.sun.net.ssl.checkRevocation=false -Dsun.security.ssl.allowUnsafeRenegotiation=true -Djavax.net.ssl.trustStoreType=JKS -Dcom.sun.net.ssl.checkRevocation=false -DtrustAll=true -Djsse.enableSNI=false -Dcom.sun.net.ssl.disableHostnameVerification=true -Dorg.apache.spark.ssl.trustStore=/dev/null
 
+  # SSL doğrulamasını devre dışı bırakmak için (GÜVENLİK RİSKİ İÇERİR!)
+  --conf "spark.driver.extraJavaOptions=-Dkubernetes.trust.certs=true" \
+  --conf "spark.executor.extraJavaOptions=-Dkubernetes.trust.certs=true"
 
+spark.kubernetes.authenticate.caCertFile=/dev/null
+spark.kubernetes.authenticate.submission.caCertFile=/dev/null
+spark.ssl.no-validate-certs=true
 
 keytool -importcert -trustcacerts -alias k8s-api-ca -file server-ca.crt -keystore /opt/certs/custom-trust.jks -storepass MyTrustPass -noprompt
 
