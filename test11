@@ -1,8 +1,3 @@
-RUN mkdir -p /etc/rstudio/keybindings && \
-    echo '{}' > /etc/rstudio/keybindings/addins.json && \
-    echo '{}' > /etc/rstudio/keybindings/editor_bindings.json && \
-    echo '{}' > /etc/rstudio/keybindings/rstudio_bindings.json && \
-    echo '{}' > /etc/rstudio/keybindings/editor_commands.json && \
-    echo '{}' > /etc/rstudio/keybindings/rstudio_commands.json && \
-    chmod 644 /etc/rstudio/keybindings/*.json && \
-    chmod 755 /etc/rstudio/keybindings
+total_bytes=$(curl -s -u 'USER:PASS' "https://ARTIFACTORY_URL/artifactory/api/storage/REPO_NAME/PATH/?list&deep=1&listFolders=0" \
+  | jq -r '[.files[].size] | add // 0')
+printf "Bytes: %d\nGB: %.2f\n" "$total_bytes" "$(awk -v b="$total_bytes" 'BEGIN{printf "%.2f", b/1024/1024/1024}')"
