@@ -1,3 +1,20 @@
+curl -s -u 'USER:PASS' "https://ARTIFACTORY_URL/artifactory/api/storage/REPO_NAME/PATH/??list&deep=1&listFolders=0" \
+  | jq -r '.files[].size' \
+  | awk '{s+=$1} END {printf "%.2f\n", s/1024/1024/1024}'
+
+
 total_bytes=$(curl -s -u 'USER:PASS' "https://ARTIFACTORY_URL/artifactory/api/storage/REPO_NAME/PATH/?list&deep=1&listFolders=0" \
   | jq -r '[.files[].size] | add // 0')
 printf "Bytes: %d\nGB: %.2f\n" "$total_bytes" "$(awk -v b="$total_bytes" 'BEGIN{printf "%.2f", b/1024/1024/1024}')"
+
+
+curl -s -u 'USER:PASS' "https://ARTIFACTORY_URL/artifactory/api/storageinfo" \
+  | jq -r '.repositoriesSummaryList[] | select(.repoKey=="REPO_NAME") | .usedSpaceInBytes' \
+  | awk '{printf "GB: %.2f\n", $1/1024/1024/1024}'
+
+
+size_bytes=$(curl -s -u USER:PASS "https://<ARTIFACTORY_URL>/artifactory/api/storage/<REPO>/ali/repo1/adizini?stats" | jq '.sizeBytes')
+echo "$((size_bytes / 1024 / 1024)) MB"
+
+
+curl -s -u USER:PASS "https://<ARTIFACTORY_URL>/artifactory/api/storage/<REPO>/<PATH>?stats" | jq '.size' | awk '{printf "%.2f GB\n", $1/1024/1024/1024}'
