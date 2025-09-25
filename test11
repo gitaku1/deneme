@@ -1,26 +1,18 @@
 #!/bin/bash
 
-# Ana dizin URL
 BASE_URL="https://<ARTIFACTORY_URL>/artifactory/<REPO>/<PATH>"
-
-# Kullanıcı adı ve şifre
 USER="username"
 PASS="password"
 
-# Tüm manifest dosyalarını recursive olarak bul (örnek: önceden URL listesi var diyelim)
-# Eğer URL listesi yoksa, manuel olarak alt dizinleri listelemen gerekir
-# filelist.txt -> her satırda manifest dosyası URL’si olacak
-
 total=0
 
+# Read all URLs from filelist.txt
 while read manifest_url; do
-    # Manifest içeriğini çek ve size değerlerini topla
-    size_sum=$(curl -s -u $USER:$PASS "$manifest_url" \
-        | grep -o '"size":[0-9]\+' \
-        | awk -F: '{s+=$2} END {print s}')
-    
-    total=$((total + size_sum))
-done < filelist.txt
-
-# Byte → GB çevir
-echo "Toplam: $(awk -v b=$total 'BEGIN{printf "%.2f GB\n", b/1024/1024/1024}')"
+    # Only process files starting with manifest-sha256
+    if [[ "$manifest_url" == *manifest-sha256* ]]; then
+        size_sum=$(curl -s -u $USER:$PASS "$manifest_url" \
+            | grep -o '"size":[0-9]\+' \
+            | awk -F: '{s+=$2} END {print s}')
+        
+        # Add to total if not empty
+        if [[ -n "$]()]()
