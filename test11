@@ -1,20 +1,26 @@
-curl -s -u 'USER:PASS' "https://ARTIFACTORY_URL/artifactory/api/storage/REPO_NAME/PATH/??list&deep=1&listFolders=0" \
-  | jq -r '.files[].size' \
-  | awk '{s+=$1} END {printf "%.2f\n", s/1024/1024/1024}'
+#!/bin/bash
 
+# Ana dizin URL
+BASE_URL="https://<ARTIFACTORY_URL>/artifactory/<REPO>/<PATH>"
 
-total_bytes=$(curl -s -u 'USER:PASS' "https://ARTIFACTORY_URL/artifactory/api/storage/REPO_NAME/PATH/?list&deep=1&listFolders=0" \
-  | jq -r '[.files[].size] | add // 0')
-printf "Bytes: %d\nGB: %.2f\n" "$total_bytes" "$(awk -v b="$total_bytes" 'BEGIN{printf "%.2f", b/1024/1024/1024}')"
+# Kullanıcı adı ve şifre
+USER="username"
+PASS="password"
 
+# Tüm manifest dosyalarını recursive olarak bul (örnek: önceden URL listesi var diyelim)
+# Eğer URL listesi yoksa, manuel olarak alt dizinleri listelemen gerekir
+# filelist.txt -> her satırda manifest dosyası URL’si olacak
 
-curl -s -u 'USER:PASS' "https://ARTIFACTORY_URL/artifactory/api/storageinfo" \
-  | jq -r '.repositoriesSummaryList[] | select(.repoKey=="REPO_NAME") | .usedSpaceInBytes' \
-  | awk '{printf "GB: %.2f\n", $1/1024/1024/1024}'
+total=0
 
+while read manifest_url; do
+    # Manifest içeriğini çek ve size değerlerini topla
+    size_sum=$(curl -s -u $USER:$PASS "$manifest_url" \
+        | grep -o '"size":[0-9]\+' \
+        | awk -F: '{s+=$2} END {print s}')
+    
+    total=$((total + size_sum))
+done < filelist.txt
 
-size_bytes=$(curl -s -u USER:PASS "https://<ARTIFACTORY_URL>/artifactory/api/storage/<REPO>/ali/repo1/adizini?stats" | jq '.sizeBytes')
-echo "$((size_bytes / 1024 / 1024)) MB"
-
-
-curl -s -u USER:PASS "https://<ARTIFACTORY_URL>/artifactory/api/storage/<REPO>/<PATH>?stats" | jq '.size' | awk '{printf "%.2f GB\n", $1/1024/1024/1024}'
+# Byte → GB çevir
+echo "Toplam: $(awk -v b=$total 'BEGIN{printf "%.2f GB\n", b/1024/1024/1024}')"
