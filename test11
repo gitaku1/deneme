@@ -15,4 +15,11 @@ while read manifest_url; do
             | awk -F: '{s+=$2} END {print s}')
         
         # Add to total if not empty
-        if [[ -n "$]()]()
+        if [[ -n "$size_sum" ]]; then
+            total=$((total + size_sum))
+        fi
+    fi
+done < filelist.txt
+
+# Convert bytes to GB and print
+echo "Total: $(awk -v b=$total 'BEGIN{printf \"%.2f GB\n\", b/1024/1024/1024}')"
