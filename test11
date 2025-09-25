@@ -1,0 +1,8 @@
+RUN mkdir -p /etc/rstudio/keybindings && \
+    echo '{}' > /etc/rstudio/keybindings/addins.json && \
+    echo '{}' > /etc/rstudio/keybindings/editor_bindings.json && \
+    echo '{}' > /etc/rstudio/keybindings/rstudio_bindings.json && \
+    echo '{}' > /etc/rstudio/keybindings/editor_commands.json && \
+    echo '{}' > /etc/rstudio/keybindings/rstudio_commands.json && \
+    chmod 644 /etc/rstudio/keybindings/*.json && \
+    chmod 755 /etc/rstudio/keybindings
