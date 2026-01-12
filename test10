@@ -1,40 +1,18 @@
-echo | openssl s_client -connect your.k8s.api.server:6443 -showcerts 2>/dev/null | sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p' > server-ca.crt
-
-openssl x509 -in server-ca.crt -noout -text | grep -E 'Subject:|Issuer:|CA:TRUE|Not After'
-
-echo | openssl s_client -connect your.k8s.api.server:6443 -CAfile server-ca.crt -servername your.k8s.api.server
-
-JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
-CACERTS="${JAVA_HOME}/lib/security/cacerts"
-sudo cp "$CACERTS" "${CACERTS}.bak_$(date +%s)"
-
-
-sudo keytool -importcert -trustcacerts -alias k8s-api-ca -file server-ca.crt -keystore "$CACERTS" -storepass changeit -noprompt
-
-sudo keytool -list -keystore "$CACERTS" -storepass changeit | grep k8s-api-ca
-
-FROM openjdk:11-jre-slim
-COPY server-ca.crt /tmp/server-ca.crt
-RUN keytool -importcert -trustcacerts -alias k8s-api-ca -file /tmp/server-ca.crt -keystore $JAVA_HOME/lib/security/cacerts -storepass changeit -noprompt \
- && rm /tmp/server-ca.crt
-# uygulama jar ve start komutunuz burada
-COPY app.jar /opt/app/app.jar
-CMD ["java","-jar","/opt/app/app.jar"]
+curl http://localhost:8000/v1/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer dummy" \
+  -d '{
+    "model": "Llama-3.2-1B-Instruct",
+    "prompt": "Türkiye'nin başkenti neresidir?",
+    "max_tokens": 50
+  }'
 
 
 
-- Spark Driver: spark.driver.extraJavaOptions = -Dcom.sun.net.ssl.checkRevocation=false -Dsun.security.ssl.allowUnsafeRenegotiation=true -Djavax.net.ssl.trustStoreType=JKS -Dcom.sun.net.ssl.checkRevocation=false -DtrustAll=true -Djsse.enableSNI=false -Dcom.sun.net.ssl.disableHostnameVerification=true -Dorg.apache.spark.ssl.trustStore=/dev/null
-- Spark Executor: spark.executor.extraJavaOptions = -Dcom.sun.net.ssl.checkRevocation=false -Dsun.security.ssl.allowUnsafeRenegotiation=true -Djavax.net.ssl.trustStoreType=JKS -Dcom.sun.net.ssl.checkRevocation=false -DtrustAll=true -Djsse.enableSNI=false -Dcom.sun.net.ssl.disableHostnameVerification=true -Dorg.apache.spark.ssl.trustStore=/dev/null
-
-  # SSL doğrulamasını devre dışı bırakmak için (GÜVENLİK RİSKİ İÇERİR!)
-  --conf "spark.driver.extraJavaOptions=-Dkubernetes.trust.certs=true" \
-  --conf "spark.executor.extraJavaOptions=-Dkubernetes.trust.certs=true"
-
-spark.kubernetes.authenticate.caCertFile=/dev/null
-spark.kubernetes.authenticate.submission.caCertFile=/dev/null
-spark.ssl.no-validate-certs=true
-
-keytool -importcert -trustcacerts -alias k8s-api-ca -file server-ca.crt -keystore /opt/certs/custom-trust.jks -storepass MyTrustPass -noprompt
-
-JAVA_OPTS="-Djavax.net.ssl.trustStore=/opt/certs/custom-trust.jks -Djavax.net.ssl.trustStorePassword=MyTrustPass"
-java $JAVA_OPTS -jar app.jar
+curl http://localhost:8000/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -d '{
+        "model": "/manuel/model/yolunuz",
+        "messages": [{"role": "user", "content": "Merhaba, sistem düzgün çalışıyor mu?"}],
+        "max_tokens": 50
+    }'
