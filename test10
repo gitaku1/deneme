@@ -1,18 +1,13 @@
-curl http://localhost:8000/v1/completions \
+curl -s -X POST http://localhost:8050/v1/completions \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer dummy" \
   -d '{
-    "model": "Llama-3.2-1B-Instruct",
-    "prompt": "Türkiye'nin başkenti neresidir?",
-    "max_tokens": 50
-  }'
+        "model": "llama-3.2-1b",
+        "prompt": "Merhaba dünya!",
+        "max_tokens": 10
+      }' | jq -r '.choices[0].text'
 
 
-
-curl http://localhost:8000/v1/chat/completions \
-    -H "Content-Type: application/json" \
-    -d '{
-        "model": "/manuel/model/yolunuz",
-        "messages": [{"role": "user", "content": "Merhaba, sistem düzgün çalışıyor mu?"}],
-        "max_tokens": 50
-    }'
+# Artık sadece "llama3" yazmanız yeterli
+curl http://localhost:8050/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "llama3", "messages": [{"role": "user", "content": "Test"}]}'
