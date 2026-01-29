@@ -4,19 +4,19 @@ from huggingface_hub import snapshot_download
 from huggingface_hub.utils import HfHubHTTPError
 
 # ======================
-# Ortam değişkenleri
+# Environment variables
 # ======================
-os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"   # hız & resume için önerilir
-os.environ["HF_HOME"] = "/data01/huggingface"   # cache yolu (isteğe bağlı)
+os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
 
 # ======================
-# Ayarlar
+# User inputs
 # ======================
-MODEL_ID = "model_sahibi/model_adi"
-LOCAL_DIR = "/data01/models/model_adi"
-RETRY_WAIT_SECONDS = 60   # hata alınca kaç sn beklesin
+MODEL_ID = input("Enter model repo id (example: meta-llama/Llama-2-7b): ").strip()
+LOCAL_DIR = input("Enter local download directory: ").strip()
 
-print(f"🚀 Model indirme başlıyor: {MODEL_ID}")
+RETRY_WAIT_SECONDS = 60  # wait time before retry
+
+print(f"Starting model download: {MODEL_ID}")
 
 while True:
     try:
@@ -27,17 +27,17 @@ while True:
             resume_download=True,
         )
 
-        print("✅ Model başarıyla indirildi.")
-        break  # her şey bittiyse çık
+        print("Model download completed successfully.")
+        break
 
     except HfHubHTTPError as e:
-        print("⚠️ HF Hub HTTP hatası alındı:")
+        print("HF Hub HTTP error occurred:")
         print(e)
-        print(f"🔁 {RETRY_WAIT_SECONDS} saniye sonra tekrar denenecek...")
+        print(f"Retrying in {RETRY_WAIT_SECONDS} seconds...")
         time.sleep(RETRY_WAIT_SECONDS)
 
     except Exception as e:
-        print("⚠️ Beklenmeyen bir hata alındı:")
+        print("Unexpected error occurred:")
         print(e)
-        print(f"🔁 {RETRY_WAIT_SECONDS} saniye sonra tekrar denenecek...")
+        print(f"Retrying in {RETRY_WAIT_SECONDS} seconds...")
         time.sleep(RETRY_WAIT_SECONDS)
