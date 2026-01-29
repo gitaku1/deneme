@@ -1,13 +1,43 @@
-curl -s -X POST http://localhost:8050/v1/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-        "model": "llama-3.2-1b",
-        "prompt": "Merhaba dünya!",
-        "max_tokens": 10
-      }' | jq -r '.choices[0].text'
+import os
+import time
+from huggingface_hub import snapshot_download
+from huggingface_hub.utils import HfHubHTTPError
 
+# ======================
+# Ortam değişkenleri
+# ======================
+os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"   # hız & resume için önerilir
+os.environ["HF_HOME"] = "/data01/huggingface"   # cache yolu (isteğe bağlı)
 
-# Artık sadece "llama3" yazmanız yeterli
-curl http://localhost:8050/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"model": "llama3", "messages": [{"role": "user", "content": "Test"}]}'
+# ======================
+# Ayarlar
+# ======================
+MODEL_ID = "model_sahibi/model_adi"
+LOCAL_DIR = "/data01/models/model_adi"
+RETRY_WAIT_SECONDS = 60   # hata alınca kaç sn beklesin
+
+print(f"🚀 Model indirme başlıyor: {MODEL_ID}")
+
+while True:
+    try:
+        snapshot_download(
+            repo_id=MODEL_ID,
+            local_dir=LOCAL_DIR,
+            local_dir_use_symlinks=False,
+            resume_download=True,
+        )
+
+        print("✅ Model başarıyla indirildi.")
+        break  # her şey bittiyse çık
+
+    except HfHubHTTPError as e:
+        print("⚠️ HF Hub HTTP hatası alındı:")
+        print(e)
+        print(f"🔁 {RETRY_WAIT_SECONDS} saniye sonra tekrar denenecek...")
+        time.sleep(RETRY_WAIT_SECONDS)
+
+    except Exception as e:
+        print("⚠️ Beklenmeyen bir hata alındı:")
+        print(e)
+        print(f"🔁 {RETRY_WAIT_SECONDS} saniye sonra tekrar denenecek...")
+        time.sleep(RETRY_WAIT_SECONDS)
