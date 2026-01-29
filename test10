@@ -1,3 +1,18 @@
+google/gemma-2b
+google/gemma-7b
+meta-llama/Llama-2-7b-hf
+meta-llama/Llama-2-13b-hf
+mistralai/Mistral-7B-v0.1
+mistralai/Mixtral-8x7B-v0.1
+tiiuae/falcon-7b
+tiiuae/falcon-40b
+Qwen/Qwen2-7B
+Qwen/Qwen2-1.5B
+
+
+
+
+
 import os
 import time
 from huggingface_hub import snapshot_download
