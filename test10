@@ -1,58 +1,156 @@
-google/gemma-2b
-google/gemma-7b
-meta-llama/Llama-2-7b-hf
-meta-llama/Llama-2-13b-hf
-mistralai/Mistral-7B-v0.1
-mistralai/Mixtral-8x7B-v0.1
-tiiuae/falcon-7b
-tiiuae/falcon-40b
-Qwen/Qwen2-7B
-Qwen/Qwen2-1.5B
+import tkinter as tk
+from tkinter import messagebox
+import sqlite3
+import random
+from datetime import datetime, timedelta
 
+# ---------------- DATABASE ---------------- #
 
+conn = sqlite3.connect("vocab.db")
+cursor = conn.cursor()
 
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS words (
+    id INTEGER PRIMARY KEY,
+    english TEXT,
+    turkish TEXT,
+    interval INTEGER DEFAULT 1,
+    repetition INTEGER DEFAULT 0,
+    ease REAL DEFAULT 2.5,
+    next_review TEXT
+)
+""")
 
+conn.commit()
 
-import os
-import time
-from huggingface_hub import snapshot_download
-from huggingface_hub.utils import HfHubHTTPError
+# ---------------- SPACED REPETITION ---------------- #
 
-# ======================
-# Environment variables
-# ======================
-os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
+def calculate_next_review(word_id, quality):
+    cursor.execute("SELECT interval, repetition, ease FROM words WHERE id=?", (word_id,))
+    interval, repetition, ease = cursor.fetchone()
 
-# ======================
-# User inputs
-# ======================
-MODEL_ID = input("Enter model repo id (example: meta-llama/Llama-2-7b): ").strip()
-LOCAL_DIR = input("Enter local download directory: ").strip()
+    if quality < 3:
+        repetition = 0
+        interval = 1
+    else:
+        repetition += 1
+        ease = max(1.3, ease + (0.1 - (5-quality)*(0.08+(5-quality)*0.02)))
+        interval = int(interval * ease)
 
-RETRY_WAIT_SECONDS = 60  # wait time before retry
+    next_review = datetime.now() + timedelta(days=interval)
 
-print(f"Starting model download: {MODEL_ID}")
+    cursor.execute("""
+    UPDATE words
+    SET interval=?, repetition=?, ease=?, next_review=?
+    WHERE id=?
+    """, (interval, repetition, ease, next_review.strftime("%Y-%m-%d"), word_id))
 
-while True:
-    try:
-        snapshot_download(
-            repo_id=MODEL_ID,
-            local_dir=LOCAL_DIR,
-            local_dir_use_symlinks=False,
-            resume_download=True,
-        )
+    conn.commit()
 
-        print("Model download completed successfully.")
-        break
+# ---------------- APP ---------------- #
 
-    except HfHubHTTPError as e:
-        print("HF Hub HTTP error occurred:")
-        print(e)
-        print(f"Retrying in {RETRY_WAIT_SECONDS} seconds...")
-        time.sleep(RETRY_WAIT_SECONDS)
+class VocabApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Advanced Vocabulary Trainer")
+        self.root.geometry("700x500")
 
-    except Exception as e:
-        print("Unexpected error occurred:")
-        print(e)
-        print(f"Retrying in {RETRY_WAIT_SECONDS} seconds...")
-        time.sleep(RETRY_WAIT_SECONDS)
+        self.current_word = None
+
+        self.create_widgets()
+        self.load_today_word()
+
+    def create_widgets(self):
+        self.word_label = tk.Label(self.root, text="", font=("Helvetica", 26))
+        self.word_label.pack(pady=40)
+
+        self.entry = tk.Entry(self.root, font=("Helvetica", 18))
+        self.entry.pack()
+
+        self.check_btn = tk.Button(self.root, text="Check", command=self.check_answer)
+        self.check_btn.pack(pady=10)
+
+        self.feedback = tk.Label(self.root, text="", font=("Helvetica", 16))
+        self.feedback.pack(pady=10)
+
+        self.show_answer_btn = tk.Button(self.root, text="Show Answer", command=self.show_answer)
+        self.show_answer_btn.pack(pady=5)
+
+        self.add_section()
+
+    def add_section(self):
+        frame = tk.Frame(self.root)
+        frame.pack(pady=20)
+
+        self.new_eng = tk.Entry(frame)
+        self.new_eng.grid(row=0, column=0)
+
+        self.new_tr = tk.Entry(frame)
+        self.new_tr.grid(row=0, column=1)
+
+        add_btn = tk.Button(frame, text="Add Word", command=self.add_word)
+        add_btn.grid(row=0, column=2)
+
+    def add_word(self):
+        eng = self.new_eng.get().strip()
+        tr = self.new_tr.get().strip()
+
+        if not eng or not tr:
+            return
+
+        cursor.execute("""
+        INSERT INTO words (english, turkish, next_review)
+        VALUES (?, ?, ?)
+        """, (eng, tr, datetime.now().strftime("%Y-%m-%d")))
+
+        conn.commit()
+        self.new_eng.delete(0, tk.END)
+        self.new_tr.delete(0, tk.END)
+        messagebox.showinfo("Added", "Word added successfully!")
+
+    def load_today_word(self):
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        cursor.execute("""
+        SELECT * FROM words
+        WHERE next_review <= ?
+        ORDER BY RANDOM()
+        LIMIT 1
+        """, (today,))
+
+        result = cursor.fetchone()
+
+        if result:
+            self.current_word = result
+            self.word_label.config(text=result[1])
+            self.entry.delete(0, tk.END)
+            self.feedback.config(text="")
+        else:
+            self.word_label.config(text="No words to review today 🎉")
+
+    def check_answer(self):
+        if not self.current_word:
+            return
+
+        user_answer = self.entry.get().strip().lower()
+        correct = self.current_word[2].lower()
+
+        if user_answer == correct:
+            self.feedback.config(text="Correct ✅")
+            calculate_next_review(self.current_word[0], 5)
+        else:
+            self.feedback.config(text=f"Wrong ❌ Correct: {correct}")
+            calculate_next_review(self.current_word[0], 2)
+
+        self.load_today_word()
+
+    def show_answer(self):
+        if self.current_word:
+            self.feedback.config(text=f"Answer: {self.current_word[2]}")
+
+# ---------------- RUN ---------------- #
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = VocabApp(root)
+    root.mainloop()
