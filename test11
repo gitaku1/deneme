@@ -1,25 +1,66 @@
-#!/bin/bash
+import dataiku
 
-BASE_URL="https://<ARTIFACTORY_URL>/artifactory/<REPO>/<PATH>"
-USER="username"
-PASS="password"
+# Initialize DSS API client
+client = dataiku.api_client()
 
-total=0
+# Get general settings
+settings = client.get_general_settings()
+raw_settings = settings.get_raw()
 
-# Read all URLs from filelist.txt
-while read manifest_url; do
-    # Only process files starting with manifest-sha256
-    if [[ "$manifest_url" == *manifest-sha256* ]]; then
-        size_sum=$(curl -s -u $USER:$PASS "$manifest_url" \
-            | grep -o '"size":[0-9]\+' \
-            | awk -F: '{s+=$2} END {print s}')
-        
-        # Add to total if not empty
-        if [[ -n "$size_sum" ]]; then
-            total=$((total + size_sum))
-        fi
-    fi
-done < filelist.txt
+# CHANGE THESE
+OLD = "clustera"
+NEW = "clusterb"
 
-# Convert bytes to GB and print
-echo "Total: $(awk -v b=$total 'BEGIN{printf \"%.2f GB\n\", b/1024/1024/1024}')"
+changes = []
+
+
+def replace_obj(obj, path="root"):
+    """
+    Recursively replace OLD with NEW
+    inside dict/list string values
+    """
+
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            obj[k] = replace_obj(v, f"{path}.{k}")
+
+    elif isinstance(obj, list):
+        for i in range(len(obj)):
+            obj[i] = replace_obj(obj[i], f"{path}[{i}]")
+
+    elif isinstance(obj, str):
+        if OLD in obj:
+            new_val = obj.replace(OLD, NEW)
+            changes.append((path, obj, new_val))
+            return new_val
+
+    return obj
+
+
+# Target only container execution configs
+exec_configs = (
+    raw_settings
+    .get("containerSettings", {})
+    .get("executionConfigs", [])
+)
+
+for i, cfg in enumerate(exec_configs):
+    replace_obj(cfg, f"executionConfigs[{i}]")
+
+
+# Print planned changes
+print("\n=== CHANGES APPLIED ===\n")
+
+for path, old, new in changes:
+    print(f"PATH : {path}")
+    print(f"OLD  : {old}")
+    print(f"NEW  : {new}")
+    print("-" * 60)
+
+print(f"\nTotal changes: {len(changes)}")
+
+
+# Save changes to DSS
+settings.save()
+
+print("\nSettings saved successfully.")
