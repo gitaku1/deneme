@@ -22,3 +22,18 @@ client = dataiku.api_client()
 project = client.get_project(dataiku.default_project_key())
 
 print(project.list_llms())
+
+
+import dataiku
+
+client = dataiku.api_client()
+project = client.get_project(dataiku.default_project_key())
+
+llm = project.get_llm("LLM_ID")  # list_llms() çıktısından aldığın ID
+
+# Asıl inference methodu:
+response = llm.new_completion().with_message(
+    "user", "Explain Docker simply"
+).execute()
+
+print(response.get_text())
