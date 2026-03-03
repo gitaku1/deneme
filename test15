@@ -1,0 +1,15 @@
+import dataiku
+
+client = dataiku.api_client()
+project = client.get_project(dataiku.default_project_key())
+
+# Buraya LLM ID yaz
+llm = project.get_llm("openai-gpt4o")
+
+response = llm.chat_completion({
+    "messages": [
+        {"role": "user", "content": "Explain Kubernetes simply."}
+    ]
+})
+
+print(response["choices"][0]["message"]["content"])
