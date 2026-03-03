@@ -1,0 +1,43 @@
+import dataiku
+
+client = dataiku.api_client()
+project = client.get_default_project()
+
+# Tüm LLM'leri detaylı listele
+llms = project.list_llms()
+
+print(f"{'Model ID':<40} | {'Capabilities'}")
+print("-" * 60)
+
+for llm_info in llms:
+    # Modelin yeteneklerini kontrol et (completion, embedding vb.)
+    capabilities = llm_info.capabilities
+    print(f"{llm_info.id:<40} | {capabilities}")
+
+
+
+import dataiku
+
+# Embedding modelinizin ID'sini buraya yazın
+EMBEDDING_MODEL_ID = "SENIN_EMBEDDING_MODEL_ID_BURAYA"
+
+client = dataiku.api_client()
+project = client.get_default_project()
+
+# Model objesini al
+llm = project.get_llm(EMBEDDING_MODEL_ID)
+
+# Dönüştürmek istediğiniz metinler (Liste olarak verebilirsiniz)
+texts_to_embed = [
+    "Dataiku LLM Mesh harika bir özellik.",
+    "Python ile veri bilimi yapmak çok keyifli."
+]
+
+# Embedding işlemini başlat
+# 'embed' metodu doğrudan bir liste döndürür
+embeddings = llm.embed(texts_to_embed)
+
+# Sonuçları incele
+for i, vector in enumerate(embeddings):
+    print(f"Metin {i+1} için vektör boyutu: {len(vector)}")
+    print(f"Vektörün ilk 5 elemanı: {vector[:5]}")
