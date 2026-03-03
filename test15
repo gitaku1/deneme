@@ -37,3 +37,12 @@ response = llm.new_completion().with_message(
 ).execute()
 
 print(response.get_text())
+
+
+
+completion = llm.new_chat_completion()
+completion.with_message("user", "Explain Docker simply")
+
+response = completion.execute()
+
+print(response)
