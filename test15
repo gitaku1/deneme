@@ -1,48 +1,30 @@
 import dataiku
+import requests
+from requests.auth import HTTPBasicAuth
 
+# DSS info
 client = dataiku.api_client()
-project = client.get_project(dataiku.default_project_key())
+host = client.host
+api_key = client.api_key
 
-# Buraya LLM ID yaz
-llm = project.get_llm("openai-gpt4o")
+project_key = dataiku.default_project_key()
 
-response = llm.chat_completion({
+# LLM ID (list_llms() çıktısından aldığın)
+llm_id = "LLM_ID"
+
+url = f"{host}/public/api/projects/{project_key}/llms/{llm_id}/chat-completions"
+
+payload = {
     "messages": [
-        {"role": "user", "content": "Explain Kubernetes simply."}
+        {"role": "user", "content": "Explain Docker simply"}
     ]
-})
+}
 
-print(response["choices"][0]["message"]["content"])
+response = requests.post(
+    url,
+    json=payload,
+    auth=HTTPBasicAuth(api_key, "")
+)
 
-
-
-import dataiku
-
-client = dataiku.api_client()
-project = client.get_project(dataiku.default_project_key())
-
-print(project.list_llms())
-
-
-import dataiku
-
-client = dataiku.api_client()
-project = client.get_project(dataiku.default_project_key())
-
-llm = project.get_llm("LLM_ID")  # list_llms() çıktısından aldığın ID
-
-# Asıl inference methodu:
-response = llm.new_completion().with_message(
-    "user", "Explain Docker simply"
-).execute()
-
-print(response.get_text())
-
-
-
-completion = llm.new_chat_completion()
-completion.with_message("user", "Explain Docker simply")
-
-response = completion.execute()
-
-print(response)
+print(response.json())
+print(response.json()["choices"][0]["message"]["content"])
