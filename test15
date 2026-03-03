@@ -1,36 +1,38 @@
-from openai import OpenAI
+import dataiku
 
-# ==============================
-# SADECE BURAYI DEĞİŞTİR
-# ==============================
+client = dataiku.api_client()
+project = client.get_default_project()
 
-CUSTOM_URL = "http://host:port/v1"   # Dataiku connection içindeki customURL (sonu /v1 olacak)
-API_KEY = "sk-xxxx"                  # Dataiku connection içindeki apiKey
-MODEL_NAME = "model_adi"             # Kullanacağın model adı
+# Projedeki LLM'leri listele
+llm_list = project.list_llms()
+for llm in llm_list:
+    print(f"Model: {llm.description} | ID: {llm.id}")
 
-# ==============================
-# KODUN DEVAMI
-# ==============================
 
-client = OpenAI(
-    api_key=API_KEY,
-    base_url=CUSTOM_URL
-)
 
-try:
-    response = client.chat.completions.create(
-        model=MODEL_NAME,
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": "Explain Docker simply."}
-        ],
-        temperature=0.7,
-        max_tokens=300
-    )
+import dataiku
 
-    print("=== MODEL RESPONSE ===")
-    print(response.choices[0].message.content)
+# 1. Adımda bulduğunuz veya bildiğiniz LLM ID'sini buraya yazın
+# Örn: "openai:my-connection:gpt-4"
+LLM_ID = "SENIN_LLM_ID_BURAYA" 
 
-except Exception as e:
-    print("HATA OLUŞTU:")
-    print(e)
+client = dataiku.api_client()
+project = client.get_default_project()
+
+# LLM objesini al
+llm = project.get_llm(LLM_ID)
+
+# Yeni bir tamamlama (completion) sorgusu oluştur
+completion = llm.new_completion()
+
+# Mesajınızı ekleyin
+completion.with_message("Dataiku LLM Mesh hakkında kısa bir özet yapabilir misin?")
+
+# Sorguyu çalıştır
+response = completion.execute()
+
+# Sonucu yazdır
+if response.success:
+    print(response.text)
+else:
+    print("Bir hata oluştu:", response.error_message)
