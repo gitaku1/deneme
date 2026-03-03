@@ -1,30 +1,10 @@
 import dataiku
-import requests
-from requests.auth import HTTPBasicAuth
 
-# DSS info
 client = dataiku.api_client()
-host = client.host
-api_key = client.api_key
 
-project_key = dataiku.default_project_key()
+# Connection adı
+connection_name = "openai_connection_adi"
 
-# LLM ID (list_llms() çıktısından aldığın)
-llm_id = "LLM_ID"
+conn_info = client.get_connection(connection_name).get_info()
 
-url = f"{host}/public/api/projects/{project_key}/llms/{llm_id}/chat-completions"
-
-payload = {
-    "messages": [
-        {"role": "user", "content": "Explain Docker simply"}
-    ]
-}
-
-response = requests.post(
-    url,
-    json=payload,
-    auth=HTTPBasicAuth(api_key, "")
-)
-
-print(response.json())
-print(response.json()["choices"][0]["message"]["content"])
+print(conn_info)
