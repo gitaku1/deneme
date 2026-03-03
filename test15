@@ -13,3 +13,12 @@ response = llm.chat_completion({
 })
 
 print(response["choices"][0]["message"]["content"])
+
+
+
+import dataiku
+
+client = dataiku.api_client()
+project = client.get_project(dataiku.default_project_key())
+
+print(project.list_llms())
