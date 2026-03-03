@@ -1,10 +1,36 @@
-import dataiku
+from openai import OpenAI
 
-client = dataiku.api_client()
+# ==============================
+# SADECE BURAYI DEĞİŞTİR
+# ==============================
 
-# Connection adı
-connection_name = "openai_connection_adi"
+CUSTOM_URL = "http://host:port/v1"   # Dataiku connection içindeki customURL (sonu /v1 olacak)
+API_KEY = "sk-xxxx"                  # Dataiku connection içindeki apiKey
+MODEL_NAME = "model_adi"             # Kullanacağın model adı
 
-conn_info = client.get_connection(connection_name).get_info()
+# ==============================
+# KODUN DEVAMI
+# ==============================
 
-print(conn_info)
+client = OpenAI(
+    api_key=API_KEY,
+    base_url=CUSTOM_URL
+)
+
+try:
+    response = client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "Explain Docker simply."}
+        ],
+        temperature=0.7,
+        max_tokens=300
+    )
+
+    print("=== MODEL RESPONSE ===")
+    print(response.choices[0].message.content)
+
+except Exception as e:
+    print("HATA OLUŞTU:")
+    print(e)
