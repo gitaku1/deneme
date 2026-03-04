@@ -1,12 +1,30 @@
 import dataiku
+from dataiku import pandasutils as pdu
 
+# 1. OpenAI bağlantı adınızı buraya yazın
+connection_name = "YOUR_OPENAI_CONNECTION_NAME"
+
+# 2. Dataiku içindeki LLM (Large Language Model) istemcisini başlatın
 client = dataiku.api_client()
+connection = client.get_connection(connection_name)
 
-# Instance level LLM listesi
-llms = client.list_llms()
+# 3. Bağlantı üzerinden erişilebilir modelleri alın
+# Not: Bu aşamada bağlantının 'Allow usage from notebooks' izni olmalıdır.
+all_models = connection.get_info().get("details", {}).get("models", [])
 
-print(llms)
+# 4. Embedding özellikli modelleri filtreleyin
+embedding_models = [
+    model['id'] for model in all_models 
+    if 'embedding' in model.get('capabilities', []) or 'embed' in model['id'].lower()
+]
 
+# 5. Sonuçları yazdırın
+print(f"--- '{connection_name}' Bağlantısındaki Embedding Modelleri ---")
+for model_name in embedding_models:
+    print(f"- {model_name}")
+
+if not embedding_models:
+    print("Uyarı: Embedding yeteneğine sahip model bulunamadı. Bağlantı ayarlarını kontrol edin.")
 
 
 
