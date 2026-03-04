@@ -1,16 +1,47 @@
-import docling
-print("Docling version:", getattr(docling, "__version__", "No version attr"))
+import sys
+import os
 
-# Gerçek yükleme testi
-from docling.document import Document
-print("Document import OK")
+# 1. Adım: Temel Import Testi
+try:
+    import docling
+    from docling.document_converter import DocumentConverter
+    from docling.datamodel.base_models import InputFormat
+    from docling.datamodel.pipeline_options import PdfPipelineOptions
+    print(f"✅ Docling başarıyla import edildi. Versiyon: {docling.__version__}")
+except ImportError as e:
+    print(f"❌ Kütüphane bulunamadı: {e}")
+    print(f"Şu anki Python Yolu (Executable): {sys.executable}")
+    # Eğer burada hata alıyorsan pip install "docling[all]" komutunu tekrar kontrol etmeliyiz.
+    sys.exit()
 
+# 2. Adım: Extraction (Çıkarım) Motorunu Hazırlama
+try:
+    # Reçete arka planda bu converter'ı kullanır
+    pipeline_options = PdfPipelineOptions()
+    pipeline_options.do_ocr = True  # OCR gerekip gerekmediğini test eder
+    
+    converter = DocumentConverter()
+    print("✅ DocumentConverter (Motor) başarıyla başlatıldı.")
+except Exception as e:
+    print(f"❌ Motor başlatılamadı (Bağımlılık hatası olabilir): {e}")
+    sys.exit()
 
-import subprocess, sys
+# 3. Adım: Gerçek Dosya Testi (Hata aldığın .docx veya .pdf dosyasının yolunu buraya yaz)
+# Örnek: "/data/managed_folder/test.docx"
+test_file_path = "BURAYA_DOSYA_YOLUNU_YAZ.docx" 
 
-cmd = [sys.executable, "-c", "import docling; from docling.document import Document; print('OK')"]
-result = subprocess.run(cmd, capture_output=True, text=True)
-
-print("Return code:", result.returncode)
-print("STDOUT:", result.stdout)
-print("STDERR:", result.stderr)
+if os.path.exists(test_file_path):
+    try:
+        print(f"🔄 {test_file_path} işleniyor...")
+        result = converter.convert(test_file_path)
+        
+        # İçeriği kontrol et
+        content = result.document.export_to_markdown()
+        print("✅ Dosya başarıyla okundu!")
+        print("-" * 30)
+        print(f"İlk 200 karakter:\n{content[:200]}")
+        print("-" * 30)
+    except Exception as e:
+        print(f"❌ Dosya işlenirken hata oluştu: {e}")
+else:
+    print(f"⚠️ Test dosyası bulunamadı: {test_file_path}. Lütfen yolu kontrol et.")
