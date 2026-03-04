@@ -1,31 +1,50 @@
 import dataiku
-from dataiku import pandasutils as pdu
 
-# 1. OpenAI bağlantı adınızı buraya yazın
-connection_name = "YOUR_OPENAI_CONNECTION_NAME"
-
-# 2. Dataiku içindeki LLM (Large Language Model) istemcisini başlatın
+# 1. Dataiku API Client başlatılıyor
 client = dataiku.api_client()
-connection = client.get_connection(connection_name)
 
-# 3. Bağlantı üzerinden erişilebilir modelleri alın
-# Not: Bu aşamada bağlantının 'Allow usage from notebooks' izni olmalıdır.
-all_models = connection.get_info().get("details", {}).get("models", [])
+# 2. Tüm bağlantıları çekiyoruz
+all_connections = client.list_connections()
 
-# 4. Embedding özellikli modelleri filtreleyin
-embedding_models = [
-    model['id'] for model in all_models 
-    if 'embedding' in model.get('capabilities', []) or 'embed' in model['id'].lower()
-]
+print("--- Dataiku OpenAI Bağlantıları ve Embedding Modelleri Taraması ---\n")
 
-# 5. Sonuçları yazdırın
-print(f"--- '{connection_name}' Bağlantısındaki Embedding Modelleri ---")
-for model_name in embedding_models:
-    print(f"- {model_name}")
+found_any = False
 
-if not embedding_models:
-    print("Uyarı: Embedding yeteneğine sahip model bulunamadı. Bağlantı ayarlarını kontrol edin.")
+for conn_name, conn_info in all_connections.items():
+    # Sadece OpenAI tipindeki bağlantıları filtreliyoruz
+    # Not: Dataiku versiyonuna göre 'type' 'openai' veya 'openai-llm' olabilir
+    if conn_info.get('type') in ['openai', 'openai-llm']:
+        found_any = True
+        print(f"Bağlantı Bulundu: [{conn_name}]")
+        
+        try:
+            # Bağlantı detaylarını al
+            connection = client.get_connection(conn_name)
+            # Modelleri 'details' içinden veya direkt 'info'dan çekmeyi dene
+            details = connection.get_info().get("details", {})
+            models = details.get("models", [])
+            
+            embedding_models = []
+            for m in models:
+                # Hem yeteneklere (capabilities) bakıyoruz hem de isme
+                capabilities = m.get('capabilities', [])
+                model_id = m.get('id', '').lower()
+                
+                if 'embedding' in capabilities or 'embed' in model_id:
+                    embedding_models.append(m.get('id'))
+            
+            if embedding_models:
+                for em in embedding_models:
+                    print(f"  -> Model: {em}")
+            else:
+                print("  ! Bu bağlantıda embedding özellikli model tanımlanmamış.")
+                
+        except Exception as e:
+            print(f"  X Bağlantı detayları alınamadı: {str(e)}")
+        print("-" * 40)
 
+if not found_any:
+    print("Sistemde OpenAI tipinde herhangi bir bağlantı bulunamadı.")
 
 
 # Listeden bulduğunuz Embedding destekli ID'yi buraya yazın
