@@ -3,21 +3,15 @@ import dataiku
 client = dataiku.api_client()
 project = client.get_default_project()
 
-# Modelleri listeleyelim
-llms = project.list_llms()
+# Embeddings modellerini ayrıca listeliyoruz
+embeddings_models = project.list_embeddings_models()
 
-for llm in llms:
-    # llm nesnesini direkt sözlük olarak görmeye çalışalım
-    # Eğer bu da hata verirse varsayılan 'id' attribute'unu kullanacağız
-    try:
-        model_id = llm.id
-        print(f"--- Model ID: {model_id} ---")
-        
-        # Nesnenin içindeki tüm veriyi (dict olarak) görelim
-        # Bu kısım hangi yeteneklerin (embedding/completion) olduğunu gösterir
-        print(vars(llm)) 
-    except Exception as e:
-        print(f"Model bilgisi alınamadı: {e}")
+print("--- Kayıtlı Embedding Modelleri ---")
+for model in embeddings_models:
+    # model nesnesi üzerinden ID ve detayları alalım
+    print(f"Model ID: {model.id}")
+    # İçeriğini merak ederseniz:
+    # print(vars(model))
 
 
 
