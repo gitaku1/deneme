@@ -1,15 +1,16 @@
-import sys
-print("Python path:", sys.executable)
-print("Python version:", sys.version)
-
 import docling
-print("Docling imported successfully")
-print("Docling location:", docling.__file__)
+print("Docling version:", getattr(docling, "__version__", "No version attr"))
+
+# Gerçek yükleme testi
+from docling.document import Document
+print("Document import OK")
 
 
-import subprocess
+import subprocess, sys
 
-subprocess.run(["python", "-c", "import docling; print('OK')"])
+cmd = [sys.executable, "-c", "import docling; from docling.document import Document; print('OK')"]
+result = subprocess.run(cmd, capture_output=True, text=True)
 
-import pkgutil
-print("docling found:", pkgutil.find_loader("docling"))
+print("Return code:", result.returncode)
+print("STDOUT:", result.stdout)
+print("STDERR:", result.stderr)
