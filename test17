@@ -21,3 +21,20 @@ for llm_info in llms:
     active_caps = [k for k, v in capabilities.items() if v is True]
     
     print(f"{llm_id:<50} | {active_caps}")
+
+
+
+
+# Listeden bulduğunuz Embedding destekli ID'yi buraya yazın
+EMBEDDING_MODEL_ID = "openai:senin-baglantin:text-embedding-3-small" 
+
+llm = project.get_llm(EMBEDDING_MODEL_ID)
+
+# Tek bir metin veya liste gönderebilirsiniz
+test_text = "Dataiku üzerinde embedding testi yapıyorum."
+
+# .embed() metodu LLM Mesh üzerinden vektörü döndürür
+vector = llm.embed(test_text)
+
+print(f"Vektör başarıyla oluşturuldu. Boyut: {len(vector[0])}")
+print(f"İlk 3 sayı: {vector[0][:3]}")
