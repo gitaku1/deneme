@@ -1,62 +1,7 @@
-import dataiku
+import sys
+print("Python path:", sys.executable)
+print("Python version:", sys.version)
 
-# 1. Dataiku API Client başlatılıyor
-client = dataiku.api_client()
-
-# 2. Tüm bağlantıları çekiyoruz
-all_connections = client.list_connections()
-
-print("--- Dataiku OpenAI Bağlantıları ve Embedding Modelleri Taraması ---\n")
-
-found_any = False
-
-for conn_name, conn_info in all_connections.items():
-    # Sadece OpenAI tipindeki bağlantıları filtreliyoruz
-    # Not: Dataiku versiyonuna göre 'type' 'openai' veya 'openai-llm' olabilir
-    if conn_info.get('type') in ['openai', 'openai-llm']:
-        found_any = True
-        print(f"Bağlantı Bulundu: [{conn_name}]")
-        
-        try:
-            # Bağlantı detaylarını al
-            connection = client.get_connection(conn_name)
-            # Modelleri 'details' içinden veya direkt 'info'dan çekmeyi dene
-            details = connection.get_info().get("details", {})
-            models = details.get("models", [])
-            
-            embedding_models = []
-            for m in models:
-                # Hem yeteneklere (capabilities) bakıyoruz hem de isme
-                capabilities = m.get('capabilities', [])
-                model_id = m.get('id', '').lower()
-                
-                if 'embedding' in capabilities or 'embed' in model_id:
-                    embedding_models.append(m.get('id'))
-            
-            if embedding_models:
-                for em in embedding_models:
-                    print(f"  -> Model: {em}")
-            else:
-                print("  ! Bu bağlantıda embedding özellikli model tanımlanmamış.")
-                
-        except Exception as e:
-            print(f"  X Bağlantı detayları alınamadı: {str(e)}")
-        print("-" * 40)
-
-if not found_any:
-    print("Sistemde OpenAI tipinde herhangi bir bağlantı bulunamadı.")
-
-
-# Listeden bulduğunuz Embedding destekli ID'yi buraya yazın
-EMBEDDING_MODEL_ID = "openai:senin-baglantin:text-embedding-3-small" 
-
-llm = project.get_llm(EMBEDDING_MODEL_ID)
-
-# Tek bir metin veya liste gönderebilirsiniz
-test_text = "Dataiku üzerinde embedding testi yapıyorum."
-
-# .embed() metodu LLM Mesh üzerinden vektörü döndürür
-vector = llm.embed(test_text)
-
-print(f"Vektör başarıyla oluşturuldu. Boyut: {len(vector[0])}")
-print(f"İlk 3 sayı: {vector[0][:3]}")
+import docling
+print("Docling imported successfully")
+print("Docling location:", docling.__file__)
