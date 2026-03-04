@@ -5,3 +5,11 @@ print("Python version:", sys.version)
 import docling
 print("Docling imported successfully")
 print("Docling location:", docling.__file__)
+
+
+import subprocess
+
+subprocess.run(["python", "-c", "import docling; print('OK')"])
+
+import pkgutil
+print("docling found:", pkgutil.find_loader("docling"))
