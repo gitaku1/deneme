@@ -3,15 +3,24 @@ import dataiku
 client = dataiku.api_client()
 project = client.get_default_project()
 
-# Embeddings modellerini ayrıca listeliyoruz
-embeddings_models = project.list_embeddings_models()
+# Projedeki TÜM modelleri al
+all_llms = project.list_llms()
 
-print("--- Kayıtlı Embedding Modelleri ---")
-for model in embeddings_models:
-    # model nesnesi üzerinden ID ve detayları alalım
-    print(f"Model ID: {model.id}")
-    # İçeriğini merak ederseniz:
-    # print(vars(model))
+print("--- Bulunan Embedding Modelleri ---")
+embedding_model_ids = []
+
+for m in all_llms:
+    # Modelin ham verisindeki yeteneklere (capabilities) bakıyoruz
+    raw_data = m.get_settings().get_raw()
+    capabilities = raw_data.get("capabilities", {})
+    
+    # Eğer 'embeddings' yeteneği True ise listeye ekle
+    if capabilities.get("embeddings") is True:
+        print(f"Model ID: {m.id}")
+        embedding_model_ids.append(m.id)
+
+if not embedding_model_ids:
+    print("Uyarı: Projede aktif embedding modeli bulunamadı. Lütfen Project Settings > LLM Mesh kısmını kontrol edin.")
 
 
 
