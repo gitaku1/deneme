@@ -1,0 +1,23 @@
+import dataiku
+
+client = dataiku.api_client()
+project = client.get_default_project()
+
+# Projedeki tüm LLM'leri çek
+llms = project.list_llms()
+
+print(f"{'Model ID':<50} | {'Yetenekler'}")
+print("-" * 80)
+
+for llm_info in llms:
+    # llm_info bir sözlük (dict) gibi davranır, verileri get_raw() veya direkt anahtarla alabiliriz
+    llm_id = llm_info.id
+    
+    # Detaylı veriyi al (Capabilities burada yer alır)
+    details = llm_info.get_raw()
+    capabilities = details.get("capabilities", {})
+    
+    # Hangi yetenekler aktif? (completion, embeddings, vb.)
+    active_caps = [k for k, v in capabilities.items() if v is True]
+    
+    print(f"{llm_id:<50} | {active_caps}")
