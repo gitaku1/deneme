@@ -1,23 +1,11 @@
 import dataiku
 
-# API client
 client = dataiku.api_client()
 
-# Aktif proje
-project = client.get_default_project()
+# Instance level LLM listesi
+llms = client.list_llms()
 
-# Projedeki tüm LLM’leri listele
-llms = project.list_llms()
-
-print("Embedding destekli modeller:\n")
-
-for llm in llms:
-    llm_id = llm["id"]
-    llm_type = llm.get("type", "")
-
-    # Sadece embedding tipindekileri filtrele
-    if llm_type.upper() == "EMBEDDING":
-        print(f"Model ID: {llm_id}")
+print(llms)
 
 
 
