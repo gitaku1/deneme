@@ -1,4 +1,3 @@
-import docling
-import os
-print("Hatalı Docling'in konumu:", docling.__file__)
-print("Klasör içeriği:", os.listdir(os.path.dirname(docling.__file__)))
+https://huggingface.co/xiaoyao9184/easyocr/resolve/master/craft_mlt_25k.pth
+
+https://huggingface.co/xiaoyao9184/easyocr/resolve/master/english_g2.pth
