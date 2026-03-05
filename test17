@@ -3,3 +3,12 @@ https://huggingface.co/xiaoyao9184/easyocr/resolve/master/craft_mlt_25k.pth
 https://huggingface.co/xiaoyao9184/easyocr/resolve/master/english_g2.pth
 
 https://huggingface.co/xiaoyao9184/easyocr/resolve/master/latin_g2.pth
+
+
+# Ana resources klasörü altına document_extraction_models
+mkdir -p /data01/DATA_DIR/code-envs/resources/python/INTERNAL_document_extraction_v1/document_extraction_models/ds4sd--docling-models
+
+mkdir -p /data01/DATA_DIR/code-envs/resources/python/INTERNAL_document_extraction_v1/document_extraction_models/ds4sd--docling-layout-egret-medium
+
+# Opsiyonel: daha doğru layout için
+mkdir -p /data01/DATA_DIR/code-envs/resources/python/INTERNAL_document_extraction_v1/document_extraction_models/ds4sd--docling-layout-heron
