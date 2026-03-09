@@ -1,53 +1,6 @@
-import dataiku
-from openai import OpenAI
-
-client = dataiku.api_client()
-project = client.get_default_project()
-
-# OpenAI connection adı
-connection_name = "openai-connection"
-
-conn = client.get_connection(connection_name)
-info = conn.get_info()
-
-base_url = info["params"].get("base_url")
-api_key = info["params"].get("api_key")
-
-print(base_url)
-
-
-
-from openai import OpenAI
-
-client = OpenAI(
-    base_url=base_url,
-    api_key=api_key
-)
-
-response = client.moderations.create(
-    model="omni-moderation-latest",
-    input="I want to kill everyone"
-)
-
-print(response)
-
-
-
-import dataiku
-from dataikuapi.dss.llm import DSSLLM
-
-# Bağlantı ve model ID'nizi girin
-llm_id = "openai:baglanti_isminiz:gpt-4o"
-client = dataiku.api_client()
-project = client.get_default_project()
-llm = project.get_llm(llm_id)
-
-# Test mesajı gönderin
-completion = llm.new_completion()
-completion.with_message("Buraya test etmek istediğiniz mesajı yazın")
-
-try:
-    response = completion.execute()
-    print("Cevap:", response.text)
-except Exception as e:
-    print("Hata (Muhtemelen Moderasyon Tarafından Engellendi):", e)
+curl http://localhost:8000/v1/moderations \
+-H "Content-Type: application/json" \
+-d '{
+ "model": "toxic-bert",
+ "input": "I want to hurt someone"
+}'
