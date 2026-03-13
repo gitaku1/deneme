@@ -1,0 +1,43 @@
+import requests
+import logging
+
+
+class ToxicityGuardrail:
+
+    def __init__(self, endpoint, threshold=0.7):
+
+        self.endpoint = endpoint
+        self.threshold = threshold
+
+
+    def check_toxicity(self, text):
+
+        payload = {
+            "inputs": text
+        }
+
+        r = requests.post(self.endpoint, json=payload, timeout=5)
+
+        r.raise_for_status()
+
+        result = r.json()
+
+        if isinstance(result, list):
+            result = result[0]
+
+        label = result.get("label")
+        score = result.get("score")
+
+        return label, score
+
+
+    def validate(self, prompt):
+
+        label, score = self.check_toxicity(prompt)
+
+        logging.info(f"Toxicity result: {label} {score}")
+
+        if score and score > self.threshold:
+            raise Exception("Toxic content detected")
+
+        return True
