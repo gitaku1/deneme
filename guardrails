@@ -1,36 +1,6 @@
 curl -X POST http://HOST:PORT/classify \
-  -H "Content-Type: application/json" \
-  -d '{"inputs":"this is toxic"}'
-
-
-curl -X POST http://HOST:PORT/classify \
-  -H "Content-Type: application/json" \
-  -d '{"text":"this is toxic"}'
-
-
-curl http://<vllm-ip>:8000/v1/score \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "toxic-bert",
-    "input": "Bu çok kötü ve nefret dolu bir içerik!",
-    "xy": "z" 
-  }'
-
-curl http://<vllm-ip>:8000/predict \
-  -H "Content-Type: application/json" \
-  -d '{"text": "Bu çok kötü bir içerik!"}'
-
-
-curl http://<vllm-ip>:8000/v1/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "toxic-bert",
-    "prompt": "Bu çok kötü bir içerik!",
-    "max_tokens": 1,
-    "logprobs": 5
-  }'
-
-
-
-res = requests.post(self.endpoint, json={"model": "toxic-bert", "input": query.get_last_message()})
-toxicity_score = res.json()["data"][0]["score"]
+-H "Content-Type: application/json" \
+-d '{
+  "model": "toxic-bert",
+  "input": ["you are stupid"]
+}'
