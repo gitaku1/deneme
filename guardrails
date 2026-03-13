@@ -44,7 +44,6 @@ curl -X POST http://HOST:PORT/classify \
 
 
 
-
 import requests
 import logging
 from dataiku.llm.guardrails import BaseGuardRail, GuardRailQueryResponse
