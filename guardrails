@@ -1,113 +1,36 @@
-{
-  "meta": {
-    "label": "Toxicity Guardrail",
-    "description": "Checks prompts using external Toxic-BERT endpoint"
-  },
-
-  "operatesOnQueries": true,
-  "operatesOnResponses": false,
-
-  "mayRequestRetryOnResponses": false,
-  "mayRespondDirectlyToQueries": true,
-
-  "params": [
-
-    {
-      "name": "endpoint",
-      "label": "Toxicity API endpoint",
-      "type": "STRING",
-      "defaultValue": "http://HOST:PORT/classify"
-    },
-
-    {
-      "name": "threshold",
-      "label": "Toxicity threshold",
-      "type": "DOUBLE",
-      "defaultValue": 0.7
-    }
-
-  ]
-}
+curl -X POST http://HOST:PORT/classify \
+  -H "Content-Type: application/json" \
+  -d '{"inputs":"this is toxic"}'
 
 
+curl -X POST http://HOST:PORT/classify \
+  -H "Content-Type: application/json" \
+  -d '{"text":"this is toxic"}'
 
+
+curl http://<vllm-ip>:8000/v1/score \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "toxic-bert",
+    "input": "Bu çok kötü ve nefret dolu bir içerik!",
+    "xy": "z" 
+  }'
+
+curl http://<vllm-ip>:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Bu çok kötü bir içerik!"}'
+
+
+curl http://<vllm-ip>:8000/v1/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "toxic-bert",
+    "prompt": "Bu çok kötü bir içerik!",
+    "max_tokens": 1,
+    "logprobs": 5
+  }'
 
 
 
-
-
-
-
-
-
-import requests
-import logging
-from dataiku.llm.guardrails import BaseGuardrail
-
-
-class Guardrail(BaseGuardrail):
-
-    def set_config(self, config, plugin_config):
-
-        self.endpoint = config.get("endpoint")
-        self.threshold = config.get("threshold", 0.7)
-
-
-    def check_toxicity(self, text):
-
-        payload = {
-            "inputs": text
-        }
-
-        r = requests.post(self.endpoint, json=payload, timeout=5)
-
-        r.raise_for_status()
-
-        result = r.json()
-
-        if isinstance(result, list):
-            result = result[0]
-
-        label = result.get("label")
-        score = result.get("score")
-
-        return label, score
-
-
-    def process(self, input, trace):
-
-        logging.info("Running Toxicity Guardrail")
-
-        if "completionQuery" in input:
-
-            prompt = input["completionQuery"]["messages"][0]["content"]
-
-            label, score = self.check_toxicity(prompt)
-
-            logging.info(f"Toxicity result: {label} {score}")
-
-            if score and score > self.threshold:
-
-                return {
-                    "response": {
-                        "text": "Your request was blocked because it contains toxic content."
-                    }
-                }
-
-        return input
-
-
-
-
-
-
-
-
-{
-  "id": "toxicity-guardrail",
-  "version": "0.0.1",
-  "meta": {
-    "label": "Toxicity Guardrail Plugin",
-    "description": "Toxicity detection guardrail"
-  }
-}
+res = requests.post(self.endpoint, json={"model": "toxic-bert", "input": query.get_last_message()})
+toxicity_score = res.json()["data"][0]["score"]
