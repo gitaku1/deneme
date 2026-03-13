@@ -1,13 +1,56 @@
+{
+  "meta": {
+    "label": "Toxicity Guardrail",
+    "description": "Checks prompts using external Toxic-BERT endpoint"
+  },
+
+  "operatesOnQueries": true,
+  "operatesOnResponses": false,
+
+  "mayRequestRetryOnResponses": false,
+  "mayRespondDirectlyToQueries": true,
+
+  "params": [
+
+    {
+      "name": "endpoint",
+      "label": "Toxicity API endpoint",
+      "type": "STRING",
+      "defaultValue": "http://HOST:PORT/classify"
+    },
+
+    {
+      "name": "threshold",
+      "label": "Toxicity threshold",
+      "type": "DOUBLE",
+      "defaultValue": 0.7
+    }
+
+  ]
+}
+
+
+
+
+
+
+
+
+
+
+
+
 import requests
 import logging
+from dataiku.llm.guardrails import BaseGuardrail
 
 
-class ToxicityGuardrail:
+class Guardrail(BaseGuardrail):
 
-    def __init__(self, endpoint, threshold=0.7):
+    def set_config(self, config, plugin_config):
 
-        self.endpoint = endpoint
-        self.threshold = threshold
+        self.endpoint = config.get("endpoint")
+        self.threshold = config.get("threshold", 0.7)
 
 
     def check_toxicity(self, text):
@@ -31,16 +74,28 @@ class ToxicityGuardrail:
         return label, score
 
 
-    def validate(self, prompt):
+    def process(self, input, trace):
 
-        label, score = self.check_toxicity(prompt)
+        logging.info("Running Toxicity Guardrail")
 
-        logging.info(f"Toxicity result: {label} {score}")
+        if "completionQuery" in input:
 
-        if score and score > self.threshold:
-            raise Exception("Toxic content detected")
+            prompt = input["completionQuery"]["messages"][0]["content"]
 
-        return True
+            label, score = self.check_toxicity(prompt)
+
+            logging.info(f"Toxicity result: {label} {score}")
+
+            if score and score > self.threshold:
+
+                return {
+                    "response": {
+                        "text": "Your request was blocked because it contains toxic content."
+                    }
+                }
+
+        return input
+
 
 
 
@@ -51,39 +106,8 @@ class ToxicityGuardrail:
 {
   "id": "toxicity-guardrail",
   "version": "0.0.1",
-
   "meta": {
-    "label": "Toxicity Guardrail",
-    "description": "Blocks toxic prompts using external Toxic-BERT"
-  },
-
-  "llmGuardrails": [
-
-    {
-      "id": "toxicity-check",
-
-      "label": "Toxicity Guardrail",
-
-      "class": "toxicity_guardrail.guardrail.ToxicityGuardrail",
-
-      "params": [
-
-        {
-          "name": "endpoint",
-          "label": "Toxicity API endpoint",
-          "type": "STRING",
-          "defaultValue": "http://HOST:PORT/classify"
-        },
-
-        {
-          "name": "threshold",
-          "label": "Toxicity threshold",
-          "type": "DOUBLE",
-          "defaultValue": 0.7
-        }
-
-      ]
-    }
-
-  ]
+    "label": "Toxicity Guardrail Plugin",
+    "description": "Toxicity detection guardrail"
+  }
 }
