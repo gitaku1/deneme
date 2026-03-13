@@ -33,7 +33,9 @@
 
 
 
-
+curl -X POST http://HOST:PORT/classify \
+-H "Content-Type: application/json" \
+-d '{"model":"toxic-bert","input":["test"]}'
 
 
 
