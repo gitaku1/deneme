@@ -1,6 +1,113 @@
-curl -X POST http://HOST:PORT/classify \
--H "Content-Type: application/json" \
--d '{
-  "model": "toxic-bert",
-  "input": ["you are stupid"]
-}'
+{
+    "meta": {
+        "label": "Toxic-BERT vLLM Guardrail",
+        "description": "Sorguları vLLM üzerindeki bir sınıflandırma modeline göndererek denetler."
+    },
+    "operatesOnQueries": true,
+    "operatesOnResponses": false,
+    "mayRespondDirectlyToQueries": true,
+    "params": [
+        {
+            "name": "vllm_endpoint",
+            "type": "STRING",
+            "label": "vLLM Classify URL",
+            "mandatory": true,
+            "description": "Örn: http://HOST:PORT/classify"
+        },
+        {
+            "name": "model_id",
+            "type": "STRING",
+            "label": "Model ID",
+            "defaultValue": "toxic-bert",
+            "mandatory": true
+        },
+        {
+            "name": "toxicity_threshold",
+            "type": "DOUBLE",
+            "label": "Hassasiyet Eşiği",
+            "defaultValue": 0.8,
+            "description": "Bu skorun (0.0 - 1.0) üzerindeki mesajlar engellenir."
+        }
+    ]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import requests
+import logging
+from dataiku.llm.guardrails import BaseGuardRail, GuardRailQueryResponse
+
+logger = logging.getLogger(__name__)
+
+class MyGuardRail(BaseGuardRail):
+    def __init__(self, config):
+        self.config = config
+        self.endpoint = config.get("vllm_endpoint")
+        self.model_id = config.get("model_id", "toxic-bert")
+        self.threshold = float(config.get("toxicity_threshold", 0.8))
+
+    def process(self, context, query=None, response=None):
+        # Sadece sorgu aşamasında çalışıyoruz (LLM'e gitmeden önce)
+        if query is None:
+            return None
+
+        user_text = query.get_last_message()
+        if not user_text:
+            return None
+
+        # vLLM'in beklediği JSON yapısı
+        payload = {
+            "model": self.model_id,
+            "input": [user_text]
+        }
+
+        try:
+            # vLLM sunucusuna istek gönder
+            res = requests.post(self.endpoint, json=payload, timeout=10)
+            res.raise_for_status()
+            output = res.json()
+
+            # vLLM/Classify standart çıktısını parse etme:
+            # Yapı: {"data": [{"predictions": [{"label": "toxic", "score": 0.99}, ...]}]}
+            try:
+                predictions = output.get("data", [{}])[0].get("predictions", [])
+            except (IndexError, AttributeError):
+                logger.warning("vLLM yanıtı beklenen 'data' formatında değil.")
+                return None
+
+            toxic_score = 0
+            for pred in predictions:
+                if pred.get("label") == "toxic":
+                    toxic_score = pred.get("score", 0)
+                    break
+            
+            # Eğer toxic etiketi bulunamadıysa ama liste doluysa en yüksek skoru al
+            if toxic_score == 0 and predictions:
+                toxic_score = max(p.get("score", 0) for p in predictions)
+
+            # Eşik değer kontrolü
+            if toxic_score >= self.threshold:
+                logger.info(f"Yüksek toksisite saptandı: {toxic_score}")
+                return GuardRailQueryResponse(
+                    modified_query=None,
+                    direct_response="Üzgünüm, mesajınız topluluk kuralları (toksisite) nedeniyle engellendi.",
+                    instructions_to_add=None
+                )
+
+            # Temiz ise hiçbir şey yapmadan devam et
+            return None
+
+        except Exception as e:
+            logger.error(f"Guardrail vLLM bağlantı hatası: {str(e)}")
+            # Hata durumunda güvenli tarafta kalmak için geçişe izin veriyoruz
+            return None}
