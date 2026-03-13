@@ -41,3 +41,49 @@ class ToxicityGuardrail:
             raise Exception("Toxic content detected")
 
         return True
+
+
+
+
+
+
+
+{
+  "id": "toxicity-guardrail",
+  "version": "0.0.1",
+
+  "meta": {
+    "label": "Toxicity Guardrail",
+    "description": "Blocks toxic prompts using external Toxic-BERT"
+  },
+
+  "llmGuardrails": [
+
+    {
+      "id": "toxicity-check",
+
+      "label": "Toxicity Guardrail",
+
+      "class": "toxicity_guardrail.guardrail.ToxicityGuardrail",
+
+      "params": [
+
+        {
+          "name": "endpoint",
+          "label": "Toxicity API endpoint",
+          "type": "STRING",
+          "defaultValue": "http://HOST:PORT/classify"
+        },
+
+        {
+          "name": "threshold",
+          "label": "Toxicity threshold",
+          "type": "DOUBLE",
+          "defaultValue": 0.7
+        }
+
+      ]
+    }
+
+  ]
+}
