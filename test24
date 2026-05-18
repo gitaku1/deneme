@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+import os
+import subprocess
+import json
+from datetime import datetime, timezone
+
+# =========================================================================
+# DEBUG CONFIGURATION: Double-check your exact paths and namespaces here
+# =========================================================================
+TARGETS = [
+    {"config": os.path.expanduser("~/.kube/config"), "namespace": "YOUR_NAMESPACE_HERE"},
+]
+
+DEFAULT_FALLBACK_NS = "default"
+# =========================================================================
+
+def run_command_with_errors(command):
+    """Executes command and returns output, or prints stderr if it fails."""
+    result = subprocess.run(command, shell=True, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"  \033[1;33m[DEBUG CLI ERROR]\033[0m Command failed: '{command}'")
+        print(f"  \033[1;33m[Reason]\033[0m: {result.stderr.strip()}")
+        return None
+    return result.stdout.strip()
+
+def get_namespace_from_config():
+    current_ctx = run_command_with_errors("oc config current-context")
+    if not current_ctx:
+        return None
+        
+    config_json_str = run_command_with_errors("oc config view -o json")
+    if not config_json_str:
+        return None
+    
+    try:
+        config_data = json.loads(config_json_str)
+        for ctx_item in config_data.get("contexts", []):
+            if ctx_item.get("name") == current_ctx:
+                return ctx_item.get("context", {}).get("namespace")
+    except Exception as e:
+        print(f"  [DEBUG JSON ERROR]: {e}")
+        return None
+    return None
+
+def main():
+    print("==================================================================")
+    print("DEBUG MODE: Analyzing Configs and Timestamps...")
+    print("==================================================================\n")
+    
+    now = datetime.now(timezone.utc)
+
+    for target in TARGETS:
+        config_path = target["config"]
+        namespace = target["namespace"]
+
+        print(f"Checking target file: {config_path}")
+        if not os.path.exists(config_path):
+            print(f"  \033[1;31m[ERROR]\033[0m File does not exist on disk: {config_path}\n")
+            continue
+
+        os.environ["KUBECONFIG"] = config_path
+
+        if namespace is None:
+            print("  Namespace is set to None. Attempting auto-discovery...")
+            namespace = get_namespace_from_config()
+            if not namespace:
+                print(f"  Auto-discovery failed. Falling back to: {DEFAULT_FALLBACK_NS}")
+                namespace = DEFAULT_FALLBACK_NS
+            else:
+                print(f"  Discovered namespace from config: {namespace}")
+
+        print(f"  Switching to namespace via CLI: oc project {namespace}")
+        if run_command_with_errors(f"oc project {namespace}") is None:
+            print(f"  \033[1;31m[ERROR]\033[0m Skipping this target due to connection/project errors.\n")
+            continue
+
+        print(f"  Fetching pods from cluster...")
+        pods_output = run_command_with_errors(f"oc get pods -n {namespace} -o json")
+        if not pods_output:
+            print(f"  \033[1;31m[ERROR]\033[0m Could not retrieve pod list.\n")
+            continue
+
+        pods_data = json.loads(pods_output).get("items", [])
+        print(f"  Total pods found in cluster: {len(pods_data)}")
+        
+        has_printed_header = False
+        old_pods_counter = 0
+
+        for pod in pods_data:
+            pod_name = pod["metadata"]["name"]
+            status = pod.get("status", {})
+            start_time_str = status.get("startTime")
+            
+            if not start_time_str:
+                continue
+                
+            start_time = datetime.strptime(start_time_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            age_days = (now - start_time).days
+
+            # Just a debug print to see the actual ages of your pods
+            # print(f"    -> Pod: {pod_name} | Age: {age_days} days")
+
+            if age_days >= 2:
+                old_pods_counter += 1
+                if not has_printed_header:
+                    print(f"\n\033[1;34m[Config File]\033[0m: {config_path}")
+                    print(f"\033[1;32m[Namespace]\033[0m  : {namespace}")
+                    print("-" * 70)
+                    print(f"{'Pod Name':<50} | {'Age':<15}")
+                    print("-" * 70)
+                    has_printed_header = True
+                
+                print(f"{pod_name:<50} | {age_days} days")
+        
+        print(f"\n  [DEBUG SUMMARY]: Found {old_pods_counter} pods older than 2 days in this namespace.")
+        print("=" * 70 + "\n")
+
+if __name__ == "__main__":
+    main()
