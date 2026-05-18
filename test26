@@ -1,0 +1,165 @@
+#!/usr/bin/env python3
+import os
+import subprocess
+import json
+from datetime import datetime, timezone
+
+# =========================================================================
+# CONFIGURATION: Just set the top-level directory path here.
+# The script will recursively scan all files to group them by Cluster URL.
+# =========================================================================
+BASE_KUBE_DIR = os.path.expanduser("~/.kube")
+# =========================================================================
+
+def run_command(command):
+    """Executes a shell command and returns the stripped stdout string."""
+    result = subprocess.run(command, shell=True, capture_output=True, text=True)
+    return result.stdout.strip() if result.returncode == 0 else None
+
+def get_cluster_url_and_namespace():
+    """Extracts the cluster API server URL and the active namespace from the current kubeconfig."""
+    current_ctx = run_command("oc config current-context")
+    if not current_ctx:
+        return None, None
+        
+    config_json_str = run_command("oc config view -o json")
+    if not config_json_str:
+        return None, None
+    
+    try:
+        config_data = json.loads(config_json_str)
+        cluster_url = None
+        namespace = None
+        
+        # 1. Find the cluster URL associated with the current context
+        for ctx_item in config_data.get("contexts", []):
+            if ctx_item.get("name") == current_ctx:
+                context_details = ctx_item.get("context", {})
+                namespace = context_details.get("namespace")
+                target_cluster_name = context_details.get("cluster")
+                
+                for cluster_item in config_data.get("clusters", []):
+                    if cluster_item.get("name") == target_cluster_name:
+                        cluster_url = cluster_item.get("cluster", {}).get("server")
+                        break
+                break
+                
+        return cluster_url, namespace
+    except Exception:
+        return None, None
+
+def find_all_files_recursively(base_dir):
+    """Recursively finds all valid files under the given directory, skipping caches."""
+    file_list = []
+    if not os.path.exists(base_dir):
+        print(f"\033[1;31m[ERROR]\033[0m Base directory does not exist: {base_dir}")
+        return file_list
+
+    for root, dirs, files in os.walk(base_dir):
+        for file in files:
+            if file.startswith('.') or 'cache' in root or 'http-cache' in root:
+                continue
+            file_list.append(os.path.join(root, file))
+    return file_list
+
+def main():
+    print("==================================================================")
+    print("CLUSTER-BASED POD AGE ANALYZER (SAFE-MODE ACTIVE)")
+    print("==================================================================\n")
+    
+    now = datetime.now(timezone.utc)
+    all_configs = find_all_files_recursively(BASE_KUBE_DIR)
+    
+    # Dictionary to group findings by Cluster URL -> { "cluster_url": [list of pod data] }
+    cluster_groups = {}
+
+    for config_path in all_configs:
+        os.environ["KUBECONFIG"] = config_path
+
+        cluster_url, namespace = get_cluster_url_and_namespace()
+        if not cluster_url:
+            # File is either not a valid kubeconfig or cluster info missing
+            continue
+
+        # Clean up the URL format (e.g., https://hostname1:6443 -> hostname1:6443)
+        display_cluster = cluster_url.replace("https://", "").replace("http://", "")
+
+        # Initialize the cluster group if it doesn't exist
+        if display_cluster not in cluster_groups:
+            cluster_groups[display_cluster] = []
+
+        # SECURITY CHECK: If the namespace is missing or explicitly set to 'default'
+        if not namespace or namespace.lower() == "default":
+            warning_msg = (
+                f"  \033[1;33m[WARNING]\033[0m Config: {config_path}\n"
+                f"            Detected namespace is 'default'! Action blocked to prevent accidental deletion.\n"
+                f"            Please update this config file with a correct target namespace."
+            )
+            cluster_groups[display_cluster].append({"type": "warning", "message": warning_msg})
+            continue
+
+        # Validate context project switch
+        if run_command(f"oc project {namespace}") is None:
+            err_msg = f"  \033[1;31m[ERROR]\033[0m Could not switch to namespace '{namespace}' on config: {config_path}"
+            cluster_groups[display_cluster].append({"type": "error", "message": err_msg})
+            continue
+
+        # Fetch live pods
+        pods_output = run_command(f"oc get pods -n {namespace} -o json")
+        if not pods_output:
+            continue
+
+        try:
+            pods_data = json.loads(pods_output).get("items", [])
+        except Exception:
+            continue
+
+        pod_entries = []
+        for pod in pods_data:
+            pod_name = pod["metadata"]["name"]
+            status = pod.get("status", {})
+            start_time_str = status.get("startTime")
+            
+            if not start_time_str:
+                continue
+                
+            start_time = datetime.strptime(start_time_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            age_days = (now - start_time).days
+
+            if age_days >= 2:
+                pod_entries.append({"name": pod_name, "age": age_days})
+
+        if pod_entries:
+            cluster_groups[display_cluster].append({
+                "type": "pods",
+                "namespace": namespace,
+                "config": config_path,
+                "data": pod_entries
+            })
+
+    # PRINTING STAGE: Render everything beautifully grouped by Cluster Endpoint
+    for cluster_name, elements in cluster_groups.items():
+        if not elements:
+            continue
+            
+        print(f"\033[1;36mCLUSTER ENDPOINT: {cluster_name}\033[0m")
+        print("=" * 80)
+
+        for element in elements:
+            if element["type"] == "warning" or element["type"] == "error":
+                print(element["message"])
+                print("-" * 80)
+            
+            elif element["type"] == "pods":
+                print(f"  \033[1;32m[Namespace]\033[0m: {element['namespace']}  (File: {element['config']})")
+                print("  " + "-" * 70)
+                print(f"  {'Pod Name':<50} | {'Age':<15}")
+                print("  " + "-" * 70)
+                for pod in element["data"]:
+                    print(f"  {pod['name']:<50} | {pod['age']} days")
+                print("  " + "-" * 70)
+                
+        print("\n" + "#" * 80 + "\n")
+
+if __name__ == "__main__":
+    main()
