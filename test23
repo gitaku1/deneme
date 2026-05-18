@@ -2,63 +2,63 @@
 
 # =========================================================================
 # YAPILANDIRMA: "CONFIG_PATH:MANUEL_NAMESPACE"
-# - Eğer namespace kısmını boş bırakırsan (: işaretinden sonrası), namespace'i 
-#   otomatik olarak config dosyasının içinden okumaya çalışır.
+# - Eger namespace kismini bos birakirsan (: isaretinden sonrasi), namespace'i 
+#   otomatik olarak config dosyasinin icinden okumaya calisir.
 # =========================================================================
 CONFIG_MAP=(
-    "$HOME/.kube/config-prod:"                # Namespace'i dosyanın içinden otomatik bulur
-    "$HOME/.kube/config-dev:custom-ns-name"   # Namespace dosya adından farklı, manuel yazıldı
-    "$HOME/.kube/config-test:"                # Namespace'i dosyanın içinden otomatik bulur
+    "$HOME/.kube/config-prod:"                # Namespace'i dosyanin icinden otomatik bulur
+    "$HOME/.kube/config-dev:custom-ns-name"   # Namespace dosya adindan farkli, manuel yazildi
+    "$HOME/.kube/config-test:"                # Namespace'i dosyanin icinden otomatik bulur
 )
 
-# Eğer dosyanın içinden de namespace okunamazsa kullanılacak son çare varsayılanı:
+# Eger dosyanin icinden de namespace okunamazsa kullanilacak varsayilan deger:
 DEFAULT_FALLBACK_NS="default"
 # =========================================================================
 
 echo "=================================================================="
-echo "Config Dosyaları ve Namespace Analizi Başladı..."
+echo "Config Dosyalari ve Namespace Analizi Basladi..."
 echo "=================================================================="
 
 for item in "${CONFIG_MAP[@]}"; do
-    # İki nokta işaretine göre ayır
+    # Iki nokta isaretine gore ayir
     config_path="${item%%:*}"
     namespace="${item#*:}"
 
-    # Dosya kontrolü
+    # Dosya kontrolu
     if [ ! -f "$config_path" ]; then
-        echo -e "\n\033[1;31m[HATA]\033[0m Dosya bulunamadı: $config_path"
+        echo -e "\n\033[1;31m[HATA]\033[0m Dosya bulunamadi: $config_path"
         continue
     fi
 
     # Kubeconfig export et
     export KUBECONFIG="$config_path"
 
-    # Eğer manuel namespace girilmediyse, dosyanın içinden bulmayı dene
+    # Eger manuel namespace girilmediyse, dosyanin icinden bulmayi dene
     if [ -z "$namespace" ]; then
-        # Mevcut context'in namespace bilgisini config içinden çeker
+        # Mevcut context'in namespace bilgisini config icinden ceker
         current_context=$(oc config current-context 2>/dev/null)
         namespace=$(oc config view -o jsonpath="{.contexts[?(@.name=='$current_context')].context.namespace}" 2>/dev/null)
         
-        # Eğer config içinde de tanımlı bir namespace yoksa fallback değerine geç
+        # Eger config icinde de tanimli bir namespace yoksa fallback degerine gec
         if [ -z "$namespace" ]; then
             namespace=$DEFAULT_FALLBACK_NS
         fi
     fi
 
-    # 'oc project' ile ilgili namespace'e geçiş yap
+    # 'oc project' ile ilgili namespace'e gecis yap
     if ! oc project "$namespace" > /dev/null 2>&1; then
-        echo -e "\n\033[1;31m[HATA]\033[0m '$namespace' namespace'ine geçilemedi. (Config: $config_path)"
+        echo -e "\n\033[1;31m[HATA]\033[0m '$namespace' namespace'ine gecilemedi. (Config: $config_path)"
         continue
     fi
 
-    # 2 günden eski podları filtrele
+    # 2 gunden eski podlari filtrele (AGE sutununda 2d, 3d, 15d vb. olanlar)
     old_pods=$(oc get pods --no-headers 2>/dev/null | awk '$5 ~ /[2-9][0-9]*d|[1-9][0-9]{1,}d/ {print $1, $5}')
 
     if [ ! -z "$old_pods" ]; then
-        echo -e "\n\033[1;34m[Config Dosyası]\033[0m: $config_path"
+        echo -e "\n\033[1;34m[Config Dosyasi]\033[0m: $config_path"
         echo -e "\033[1;32m[Namespace]\033[0m     : $namespace"
         echo "------------------------------------------------------------------"
-        printf "%-55s %-10s\n" "Pod Adı" "Yaşı"
+        printf "%-55s %-10s\n" "Pod Adi" "Yasi"
         echo "------------------------------------------------------------------"
         
         while read -r pod_info; do
