@@ -1,64 +1,65 @@
 #!/bin/bash
 
 # =========================================================================
-# YAPILANDIRMA: "CONFIG_PATH:MANUEL_NAMESPACE"
-# - Eger namespace kismini bos birakirsan (: isaretinden sonrasi), namespace'i 
-#   otomatik olarak config dosyasinin icinden okumaya calisir.
+# CONFIGURATION: "CONFIG_PATH:MANUAL_NAMESPACE"
+# - If you leave the namespace part empty (after the :), the script will 
+#   automatically try to read the active namespace from inside the config file.
 # =========================================================================
 CONFIG_MAP=(
-    "$HOME/.kube/config-prod:"                # Namespace'i dosyanin icinden otomatik bulur
-    "$HOME/.kube/config-dev:custom-ns-name"   # Namespace dosya adindan farkli, manuel yazildi
-    "$HOME/.kube/config-test:"                # Namespace'i dosyanin icinden otomatik bulur
+    "$HOME/.kube/config-prod:"                # Detects namespace automatically from the file
+    "$HOME/.kube/config-dev:custom-ns-name"   # Uses the manually specified namespace
+    "$HOME/.kube/config-test:"                # Detects namespace automatically from the file
 )
 
-# Eger dosyanin icinden de namespace okunamazsa kullanilacak varsayilan deger:
+# Default fallback namespace if it cannot be parsed from the config file:
 DEFAULT_FALLBACK_NS="default"
 # =========================================================================
 
 echo "=================================================================="
-echo "Config Dosyalari ve Namespace Analizi Basladi..."
+echo "Starting Config Files and Namespace Analysis..."
 echo "=================================================================="
 
 for item in "${CONFIG_MAP[@]}"; do
-    # Iki nokta isaretine gore ayir
+    # Split the string by the colon (:) character
     config_path="${item%%:*}"
     namespace="${item#*:}"
 
-    # Dosya kontrolu
+    # Verify if the configuration file exists
     if [ ! -f "$config_path" ]; then
-        echo -e "\n\033[1;31m[HATA]\033[0m Dosya bulunamadi: $config_path"
+        echo -e "\n\033[1;31m[ERROR]\033[0m File not found: $config_path"
         continue
     fi
 
-    # Kubeconfig export et
+    # Export the current Kubeconfig path
     export KUBECONFIG="$config_path"
 
-    # Eger manuel namespace girilmediyse, dosyanin icinden bulmayi dene
+    # If no manual namespace is provided, attempt to discover it from the config file
     if [ -z "$namespace" ]; then
-        # Mevcut context'in namespace bilgisini config icinden ceker
+        # Fetch the current context name, then extract its default namespace
         current_context=$(oc config current-context 2>/dev/null)
         namespace=$(oc config view -o jsonpath="{.contexts[?(@.name=='$current_context')].context.namespace}" 2>/dev/null)
         
-        # Eger config icinde de tanimli bir namespace yoksa fallback degerine gec
+        # If no namespace is defined within the active context, use the fallback default
         if [ -z "$namespace" ]; then
             namespace=$DEFAULT_FALLBACK_NS
         fi
     fi
 
-    # 'oc project' ile ilgili namespace'e gecis yap
+    # Switch to the target namespace using 'oc project'
     if ! oc project "$namespace" > /dev/null 2>&1; then
-        echo -e "\n\033[1;31m[HATA]\033[0m '$namespace' namespace'ine gecilemedi. (Config: $config_path)"
+        echo -e "\n\033[1;31m[ERROR]\033[0m Failed to switch to namespace '$namespace'. (Config: $config_path)"
         continue
     fi
 
-    # 2 gunden eski podlari filtrele (AGE sutununda 2d, 3d, 15d vb. olanlar)
+    # Filter pods older than 2 days (Matches days field in AGE column like 2d, 3d, 15d, etc.)
     old_pods=$(oc get pods --no-headers 2>/dev/null | awk '$5 ~ /[2-9][0-9]*d|[1-9][0-9]{1,}d/ {print $1, $5}')
 
+    # If long-running pods are found, print them in a structured table
     if [ ! -z "$old_pods" ]; then
-        echo -e "\n\033[1;34m[Config Dosyasi]\033[0m: $config_path"
-        echo -e "\033[1;32m[Namespace]\033[0m     : $namespace"
+        echo -e "\n\033[1;34m[Config File]\033[0m: $config_path"
+        echo -e "\033[1;32m[Namespace]\033[0m  : $namespace"
         echo "------------------------------------------------------------------"
-        printf "%-55s %-10s\n" "Pod Adi" "Yasi"
+        printf "%-55s %-10s\n" "Pod Name" "Age"
         echo "------------------------------------------------------------------"
         
         while read -r pod_info; do
@@ -69,3 +70,119 @@ for item in "${CONFIG_MAP[@]}"; do
         echo "=================================================================="
     fi
 done
+
+
+
+
+
+
+#!/usr/bin/env python3
+import os
+import subprocess
+import json
+from datetime import datetime, timezone
+
+# =========================================================================
+# CONFIGURATION: 
+# - "namespace": None       -> Automatically discovers the namespace from the file.
+# - "namespace": "name-str" -> Directly uses the provided custom namespace name.
+# =========================================================================
+TARGETS = [
+    {"config": os.path.expanduser("~/.kube/config-prod"), "namespace": None},           # Auto discovery
+    {"config": os.path.expanduser("~/.kube/config-dev"),  "namespace": "custom-ns-name"}, # Manual target
+    {"config": os.path.expanduser("~/.kube/config-test"), "namespace": None},           # Auto discovery
+]
+
+DEFAULT_FALLBACK_NS = "default"
+# =========================================================================
+
+def run_command(command):
+    """Helper function to execute system shell commands safely."""
+    result = subprocess.run(command, shell=True, capture_output=True, text=True)
+    return result.stdout.strip() if result.returncode == 0 else None
+
+def get_namespace_from_config():
+    """Extracts the default namespace of the current active context from the kubeconfig."""
+    current_ctx = run_command("oc config current-context")
+    if not current_ctx:
+        return None
+        
+    config_json_str = run_command("oc config view -o json")
+    if not config_json_str:
+        return None
+    
+    try:
+        config_data = json.loads(config_json_str)
+        for ctx_item in config_data.get("contexts", []):
+            if ctx_item.get("name") == current_ctx:
+                return ctx_item.get("context", {}).get("namespace")
+    except Exception:
+        return None
+    return None
+
+def main():
+    print("==================================================================")
+    print("Advanced Config and Namespace Filtering Tool Active...")
+    print("==================================================================\n")
+    
+    now = datetime.now(timezone.utc)
+
+    for target in TARGETS:
+        config_path = target["config"]
+        namespace = target["namespace"]
+
+        if not os.path.exists(config_path):
+            print(f"\033[1;31m[ERROR]\033[0m File not found: {config_path}")
+            continue
+
+        # Set the KUBECONFIG environment variable to the specific target file
+        os.environ["KUBECONFIG"] = config_path
+
+        # If namespace is not explicitly provided, extract it dynamically from the file
+        if namespace is None:
+            namespace = get_namespace_from_config()
+            if not namespace:
+                namespace = DEFAULT_FALLBACK_NS
+
+        # Validate cluster access and switch context to the namespace
+        if run_command(f"oc project {namespace}") is None:
+            print(f"\033[1;31m[ERROR]\033[0m Could not access namespace '{namespace}'. (Config: {config_path})")
+            continue
+
+        # Fetch live pod statuses in JSON format
+        pods_output = run_command(f"oc get pods -n {namespace} -o json")
+        if not pods_output:
+            continue
+
+        pods_data = json.loads(pods_output).get("items", [])
+        has_printed_header = False
+
+        for pod in pods_data:
+            pod_name = pod["metadata"]["name"]
+            status = pod.get("status", {})
+            start_time_str = status.get("startTime")
+            
+            if not start_time_str:
+                continue
+                
+            # Parse pod start timestamp accurately
+            start_time = datetime.strptime(start_time_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            age_days = (now - start_time).days
+
+            # Filter and display pods that have been running for 2 or more days
+            if age_days >= 2:
+                if not has_printed_header:
+                    print(f"\033[1;34m[Config File]\033[0m: {config_path}")
+                    print(f"\033[1;32m[Namespace]\033[0m  : {namespace}")
+                    print("-" * 70)
+                    print(f"{'Pod Name':<50} | {'Age':<15}")
+                    print("-" * 70)
+                    has_printed_header = True
+                
+                print(f"{pod_name:<50} | {age_days} days")
+        
+        if has_printed_header:
+            print("\n" + "="*70 + "\n")
+
+if __name__ == "__main__":
+    main()
