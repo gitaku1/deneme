@@ -2,6 +2,7 @@
 import os
 import subprocess
 import json
+import re
 from datetime import datetime, timezone
 
 # =========================================================================
@@ -16,8 +17,18 @@ def run_command(command):
     result = subprocess.run(command, shell=True, capture_output=True, text=True)
     return result.stdout.strip() if result.returncode == 0 else None
 
+def extract_ns_from_string(text):
+    """Helper to extract namespace from serviceaccount format (e.g., system:serviceaccount:my-namespace:sa-name)"""
+    if not text:
+        return None
+    # Matches 'serviceaccount:namespace_name:' format
+    match = re.search(r'serviceaccount:([^:]+)', text)
+    if match:
+        return match.group(1)
+    return None
+
 def get_cluster_url_and_namespace():
-    """Extracts the cluster API server URL and the active namespace from the current kubeconfig."""
+    """Extracts cluster URL and namespace, scanning context, usernames, and serviceaccounts."""
     current_ctx = run_command("oc config current-context")
     if not current_ctx:
         return None, None
@@ -30,20 +41,52 @@ def get_cluster_url_and_namespace():
         config_data = json.loads(config_json_str)
         cluster_url = None
         namespace = None
+        target_user_name = None
+        target_cluster_name = None
         
-        # 1. Find the cluster URL associated with the current context
+        # 1. Step: Parse the current context layer
         for ctx_item in config_data.get("contexts", []):
             if ctx_item.get("name") == current_ctx:
                 context_details = ctx_item.get("context", {})
-                namespace = context_details.get("namespace")
+                namespace = context_details.get("namespace")  # Standard explicit namespace definition
                 target_cluster_name = context_details.get("cluster")
-                
-                for cluster_item in config_data.get("clusters", []):
-                    if cluster_item.get("name") == target_cluster_name:
-                        cluster_url = cluster_item.get("cluster", {}).get("server")
-                        break
+                target_user_name = context_details.get("user")
                 break
-                
+        
+        # 2. Step: Resolve Cluster Endpoint URL
+        if target_cluster_name:
+            for cluster_item in config_data.get("clusters", []):
+                if cluster_item.get("name") == target_cluster_name:
+                    cluster_url = cluster_item.get("cluster", {}).get("server")
+                    break
+
+        # 3. Step: Advanced Namespace Discovery (If explicit namespace is missing or default)
+        # Check if namespace is hidden inside user metadata or ServiceAccount definitions
+        if (not namespace or namespace.lower() == "default") and target_user_name:
+            # First try parsing the username itself (often contains SA info)
+            namespace_from_user = extract_ns_from_string(target_user_name)
+            if namespace_from_user:
+                namespace = namespace_from_user
+            else:
+                # Look deeper inside the users credentials block (token or internal user definitions)
+                for user_item in config_data.get("users", []):
+                    if user_item.get("name") == target_user_name:
+                        user_details = user_item.get("user", {})
+                        
+                        # Inspect token value for embedded ServiceAccount strings
+                        token = user_details.get("token")
+                        namespace_from_token = extract_ns_from_string(token)
+                        if namespace_from_token:
+                            namespace = namespace_from_token
+                            break
+                            
+                        # Inspect execution or display names if any
+                        as_user = user_details.get("as")
+                        namespace_from_as = extract_ns_from_string(as_user)
+                        if namespace_from_as:
+                            namespace = namespace_from_as
+                            break
+                            
         return cluster_url, namespace
     except Exception:
         return None, None
@@ -64,13 +107,11 @@ def find_all_files_recursively(base_dir):
 
 def main():
     print("==================================================================")
-    print("CLUSTER-BASED POD AGE ANALYZER (SAFE-MODE ACTIVE)")
+    print("SMART CLUSTER-BASED POD AGE ANALYZER (SAFE-MODE + DEEP PARSE)")
     print("==================================================================\n")
     
     now = datetime.now(timezone.utc)
     all_configs = find_all_files_recursively(BASE_KUBE_DIR)
-    
-    # Dictionary to group findings by Cluster URL -> { "cluster_url": [list of pod data] }
     cluster_groups = {}
 
     for config_path in all_configs:
@@ -78,29 +119,36 @@ def main():
 
         cluster_url, namespace = get_cluster_url_and_namespace()
         if not cluster_url:
-            # File is either not a valid kubeconfig or cluster info missing
             continue
 
-        # Clean up the URL format (e.g., https://hostname1:6443 -> hostname1:6443)
         display_cluster = cluster_url.replace("https://", "").replace("http://", "")
 
-        # Initialize the cluster group if it doesn't exist
         if display_cluster not in cluster_groups:
             cluster_groups[display_cluster] = []
 
-        # SECURITY CHECK: If the namespace is missing or explicitly set to 'default'
-        if not namespace or namespace.lower() == "default":
+        # SECURITY BLOCK 1: If namespace is totally missing and couldn't be discovered anywhere
+        if not namespace:
             warning_msg = (
-                f"  \033[1;33m[WARNING]\033[0m Config: {config_path}\n"
-                f"            Detected namespace is 'default'! Action blocked to prevent accidental deletion.\n"
-                f"            Please update this config file with a correct target namespace."
+                f"  \033[1;33m[NOTICE]\033[0m Config: {config_path}\n"
+                f"           Namespace could not be determined from context or serviceaccount.\n"
+                f"           Please specify or edit the target namespace manually for safety."
+            )
+            cluster_groups[display_cluster].append({"type": "warning", "message": warning_msg})
+            continue
+
+        # SECURITY BLOCK 2: Explicitly matching true 'default' namespace
+        if namespace.lower() == "default":
+            warning_msg = (
+                f"  \033[1;31m[WARNING]\033[0m Config: {config_path}\n"
+                f"            Target namespace is explicitly resolved as 'default'. Action blocked!\n"
+                f"            Please change the config definition to target your intended namespace."
             )
             cluster_groups[display_cluster].append({"type": "warning", "message": warning_msg})
             continue
 
         # Validate context project switch
         if run_command(f"oc project {namespace}") is None:
-            err_msg = f"  \033[1;31m[ERROR]\033[0m Could not switch to namespace '{namespace}' on config: {config_path}"
+            err_msg = f"  \033[1;31m[ERROR]\033[0m Could not switch to discovered namespace '{namespace}' on config: {config_path}"
             cluster_groups[display_cluster].append({"type": "error", "message": err_msg})
             continue
 
@@ -137,7 +185,7 @@ def main():
                 "data": pod_entries
             })
 
-    # PRINTING STAGE: Render everything beautifully grouped by Cluster Endpoint
+    # PRINTING STAGE: Render output grouped by Cluster API Endpoint
     for cluster_name, elements in cluster_groups.items():
         if not elements:
             continue
@@ -151,7 +199,7 @@ def main():
                 print("-" * 80)
             
             elif element["type"] == "pods":
-                print(f"  \033[1;32m[Namespace]\033[0m: {element['namespace']}  (File: {element['config']})")
+                print(f"  \033[1;32m[Namespace Discovered]\033[0m: {element['namespace']}  (File: {element['config']})")
                 print("  " + "-" * 70)
                 print(f"  {'Pod Name':<50} | {'Age':<15}")
                 print("  " + "-" * 70)
