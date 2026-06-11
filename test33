@@ -3,7 +3,6 @@ import json
 from datetime import datetime
 
 # --- USER CONFIGURATION ---
-# If you face URL issues, try changing this to just "https://artifactroyaddress:443"
 ARTIFACTORY_URL = "https://artifactroyaddress:443/artifactory"
 REPOSITORY_NAME = "imagelar"  # Your repository name
 USER = "user"
@@ -11,14 +10,19 @@ PASSWORD = "pass"
 # --------------------------
 
 def get_artifactory_images():
-    # 1. Cleaning trailing slashes and building the secure AQL endpoint
     base_url = ARTIFACTORY_URL.rstrip('/')
     url = f"{base_url}/api/search/aql"
     
-    # 2. Stable AQL query to find folders (images and tags)
-    aql_query = f'items.find({{"repo": "{REPOSITORY_NAME}", "type": "folder"}}).include("name", "path", "created")'
+    # Updated AQL query to strictly include repo, path, and name in the criteria
+    # Using "$match": "*" satisfies the permission requirement by checking all paths and names
+    aql_query = (
+        f'items.find({{'
+        f'"repo": "{REPOSITORY_NAME}", '
+        f'"path": {{"$match": "*"}}, '
+        f'"name": {{"$match": "*"}}'
+        f'}}).include("name", "path", "created")'
+    )
     
-    # 3. Mandatory headers to prevent Artifactory from throwing 400 Bad Request
     headers = {
         "Content-Type": "text/plain",
         "Accept": "application/json"
@@ -33,38 +37,33 @@ def get_artifactory_images():
             auth=(USER, PASSWORD), 
             data=aql_query, 
             headers=headers,
-            verify=False  # Disables SSL verification (like curl -k)
+            verify=False
         )
         
-        # Throws an exception if status code is 400, 401, 500 etc.
         response.raise_for_status()
-        
         results = response.json().get("results", [])
         
         if not results:
             print("No images or folders found in this repository.")
             return
 
-        # Printing the result table with clean headers
-        print(f"{'IMAGE (PATH)':<40} | {'TAG / FOLDER':<25} | {'CREATION DATE':<20}")
+        print(f"{'IMAGE (PATH)':<40} | {'TAG / FILE':<25} | {'CREATION DATE':<20}")
         print("-" * 91)
         
         for item in results:
             path = item.get("path", "")
             name = item.get("name", "")
             
-            # Skip root folders or empty paths
             if path == ".":
                 continue
                 
             created_date = item.get("created", "")
             if created_date:
                 try:
-                    # Formatting the ISO timestamp for better readability
                     dt = datetime.fromisoformat(created_date.replace("Z", "+00:00"))
                     created_date = dt.strftime("%Y-%m-%d %H:%M:%S")
                 except ValueError:
-                    pass # Keep raw format if parsing fails
+                    pass
 
             print(f"{path:<40} | {name:<25} | {created_date:<20}")
 
@@ -76,7 +75,6 @@ def get_artifactory_images():
         print(f"Connection Error: {e}")
 
 if __name__ == "__main__":
-    # Disables warning clutter due to verify=False
     import urllib3
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     
