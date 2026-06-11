@@ -1,0 +1,106 @@
+import requests
+from datetime import datetime
+
+# --- USER CONFIGURATION ---
+ARTIFACTORY_URL = "https://artifactroyaddress:443/artifactory"
+REPOSITORY_NAME = "imagelar"  # Your repository name
+USER = "user"
+PASSWORD = "pass"
+# --------------------------
+
+def get_detailed_image_tags():
+    base_url = ARTIFACTORY_URL.rstrip('/')
+    repo_url = f"{base_url}/api/storage/{REPOSITORY_NAME}"
+    
+    headers = {
+        "Accept": "application/json"
+    }
+    
+    print("Connecting to Artifactory Storage API...")
+    print(f"Scanning Repository: {REPOSITORY_NAME}\n")
+    
+    try:
+        # 1. Fetch main image folders from the root of the repository
+        response = requests.get(repo_url, auth=(USER, PASSWORD), headers=headers, verify=False)
+        response.raise_for_status()
+        root_data = response.json()
+        
+        images = root_data.get("children", [])
+        
+        if not images:
+            print("No images found in this repository.")
+            return
+
+        # Print header for the final visual list
+        print(f"{'IMAGE NAME':<35} | {'TAG / VERSION':<25} | {'CREATION DATE':<20}")
+        print("=" * 86)
+        
+        for img in images:
+            if not img.get("folder", False):
+                continue  # Skip root level files if any, only look for image folders
+                
+            img_name = img.get("uri", "").lstrip('/')
+            img_url = f"{repo_url}/{img_name}"
+            
+            # 2. Fetch tags inside this specific image folder
+            img_response = requests.get(img_url, auth=(USER, PASSWORD), headers=headers, verify=False)
+            
+            if img_response.status_code != 200:
+                print(f"{img_name:<35} | [Error fetching tags] | -")
+                continue
+                
+            img_data = img_response.json()
+            tags = img_data.get("children", [])
+            
+            if not tags:
+                print(f"{img_name:<35} | [No tags found] | -")
+                continue
+            
+            first_row = True
+            for tag in tags:
+                # Docker tags are represented as folders inside the image directory
+                if not tag.get("folder", False):
+                    continue
+                    
+                tag_name = tag.get("uri", "").lstrip('/')
+                tag_url = f"{img_url}/{tag_name}"
+                
+                # 3. Fetch specific creation/modification date for this precise tag
+                tag_response = requests.get(tag_url, auth=(USER, PASSWORD), headers=headers, verify=False)
+                
+                date_str = "Unknown"
+                if tag_response.status_code == 200:
+                    tag_data = tag_response.json()
+                    raw_date = tag_data.get("lastModified", tag_data.get("created", "Unknown"))
+                    
+                    if raw_date != "Unknown":
+                        try:
+                            # Safely format timestamp
+                            clean_date_str = raw_date.split('.')[0].replace('Z', '').replace('T', ' ')
+                            dt = datetime.strptime(clean_date_str, "%Y-%m-%d %H:%M:%S")
+                            date_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+                        except Exception:
+                            date_str = raw_date
+
+                # Visual alignment: Only print image name on the first row, leave blank for other tags of the same image
+                if first_row:
+                    print(f"{img_name:<35} | {tag_name:<25} | {date_str:<20}")
+                    first_row = False
+                else:
+                    print(f"{'':<35} | {tag_name:<25} | {date_str:<20}")
+                    
+            # Add a subtle separator line between different images for better readability
+            print("-" * 86)
+
+    except requests.exceptions.HTTPError as e:
+        print("HTTP Error Occurred!")
+        print(f"Status Code: {e.response.status_code}")
+        print(f"Response Text:\n{e.response.text}")
+    except requests.exceptions.RequestException as e:
+        print(f"Connection Error: {e}")
+
+if __name__ == "__main__":
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    
+    get_detailed_image_tags()
