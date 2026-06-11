@@ -1,0 +1,60 @@
+import requests
+import json
+from datetime import datetime
+
+# --- KULLANICI AYARLARI ---
+ARTIFACTORY_URL = "https://artifactroyaddress:443/artifactory"
+REPOSITORY_NAME = "imagelar"  # İmajlarının bulunduğu repo adı
+USER = "user"
+PASSWORD = "pass"
+# --------------------------
+
+def get_artifactory_images():
+    # AQL Sorgusu: Belirtilen repodaki tüm dosyaları getirir
+    aql_query = f'items.find({{"repo": "{REPOSITORY_NAME}"}}).include("name", "path", "created")'
+    
+    url = f"{ARTIFACTORY_URL}/api/search/aql"
+    
+    try:
+        response = requests.post(
+            url, 
+            auth=(USER, PASSWORD), 
+            data=aql_query, 
+            headers={"Content-Type": "text/plain"},
+            verify=False # -k parametresi gibi SSL doğrulamasını kapatır
+        )
+        response.raise_for_status()
+        results = response.json().get("results", [])
+        
+        if not results:
+            print("Herhangi bir imaj bulunamadı.")
+            return
+
+        print(f"{'İMAJ ADI':<30} | {'ETİKET (TAG)':<20} | {'OLUŞTURULMA TARİHİ':<20}")
+        print("-" * 76)
+        
+        for item in results:
+            # Artifactory docker yapısında genellikle path imaj adını, name ise tag'i (veya manifest.json'ı) temsil eder
+            # Sadece manifest.json veya ilgili ana dosyaları yakalamak için filtre uygulayabilirsiniz.
+            # Genel bir liste için doğrudan path ve name yazdırıyoruz:
+            
+            path = item.get("path", "")
+            name = item.get("name", "")
+            
+            # Tarih formatlama (Artifactory ISO formatında döner)
+            created_date = item.get("created", "")
+            if created_date:
+                dt = datetime.fromisoformat(created_date.replace("Z", "+00:00"))
+                created_date = dt.strftime("%Y-%m-%d %H:%M:%S")
+
+            print(f"{path:<30} | {name:<20} | {created_date:<20}")
+
+    except requests.exceptions.RequestException as e:
+        print(f"Hata oluştu: {e}")
+
+if __name__ == "__main__":
+    # SSL uyarılarını gizlemek için (verify=False kullanıldığı için)
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    
+    get_artifactory_images()
