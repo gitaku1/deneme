@@ -1,5 +1,4 @@
 import requests
-import json
 from datetime import datetime
 
 # --- USER CONFIGURATION ---
@@ -9,68 +8,71 @@ USER = "user"
 PASSWORD = "pass"
 # --------------------------
 
-def get_artifactory_images():
+def get_images_via_storage_api():
     base_url = ARTIFACTORY_URL.rstrip('/')
-    url = f"{base_url}/api/search/aql"
-    
-    # Updated AQL query to strictly include repo, path, and name in the criteria
-    # Using "$match": "*" satisfies the permission requirement by checking all paths and names
-    aql_query = (
-        f'items.find({{'
-        f'"repo": "{REPOSITORY_NAME}", '
-        f'"path": {{"$match": "*"}}, '
-        f'"name": {{"$match": "*"}}'
-        f'}}).include("name", "path", "created")'
-    )
+    # Standard Storage API endpoint for directory listing
+    url = f"{base_url}/api/storage/{REPOSITORY_NAME}"
     
     headers = {
-        "Content-Type": "text/plain",
         "Accept": "application/json"
     }
     
-    print(f"Sending request to: {url}")
-    print(f"Target Repository: {REPOSITORY_NAME}\n")
-
+    print(f"Fetching repository structure from: {url}\n")
+    
     try:
-        response = requests.post(
+        response = requests.get(
             url, 
             auth=(USER, PASSWORD), 
-            data=aql_query, 
             headers=headers,
             verify=False
         )
         
         response.raise_for_status()
-        results = response.json().get("results", [])
+        data = response.json()
         
-        if not results:
-            print("No images or folders found in this repository.")
+        # Get all children (files/folders) in the root of the repository
+        children = data.get("children", [])
+        
+        if not children:
+            print("No images found in this repository.")
             return
 
-        print(f"{'IMAGE (PATH)':<40} | {'TAG / FILE':<25} | {'CREATION DATE':<20}")
-        print("-" * 91)
+        print(f"{'IMAGE / FOLDER':<45} | {'CREATION / MODIFIED DATE':<20}")
+        print("-" * 70)
         
-        for item in results:
-            path = item.get("path", "")
-            name = item.get("name", "")
+        for child in children:
+            child_uri = child.get("uri", "")
+            is_folder = child.get("folder", False)
             
-            if path == ".":
-                continue
+            # If it's a folder, it represents an image or a tag directory
+            if child_uri:
+                # Remove leading slash if exists
+                clean_name = child_uri.lstrip('/')
                 
-            created_date = item.get("created", "")
-            if created_date:
-                try:
-                    dt = datetime.fromisoformat(created_date.replace("Z", "+00:00"))
-                    created_date = dt.strftime("%Y-%m-%d %H:%M:%S")
-                except ValueError:
-                    pass
-
-            print(f"{path:<40} | {name:<25} | {created_date:<20}")
+                # Fetch detailed metadata for this specific item to get its timestamp
+                detail_url = f"{url}{child_uri}"
+                detail_resp = requests.get(detail_url, auth=(USER, PASSWORD), headers=headers, verify=False)
+                
+                date_str = "Unknown"
+                if detail_resp.status_code == 200:
+                    detail_data = detail_resp.json()
+                    # Fallback chain for dates: lastModified -> created
+                    date_str = detail_data.get("lastModified", detail_data.get("created", "Unknown"))
+                    
+                    if date_str != "Unknown":
+                        try:
+                            # Format date nicely
+                            dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                            date_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+                        except ValueError:
+                            pass
+                
+                print(f"{clean_name:<45} | {date_str:<20}")
 
     except requests.exceptions.HTTPError as e:
         print("HTTP Error Occurred!")
         print(f"Status Code: {e.response.status_code}")
-        print(f"Artifactory Error Message:\n{e.response.text}")
+        print(f"Response Text:\n{e.response.text}")
     except requests.exceptions.RequestException as e:
         print(f"Connection Error: {e}")
 
@@ -78,4 +80,4 @@ if __name__ == "__main__":
     import urllib3
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     
-    get_artifactory_images()
+    get_images_via_storage_api()
