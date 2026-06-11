@@ -10,7 +10,6 @@ PASSWORD = "pass"
 
 def get_images_via_storage_api():
     base_url = ARTIFACTORY_URL.rstrip('/')
-    # Standard Storage API endpoint for directory listing
     url = f"{base_url}/api/storage/{REPOSITORY_NAME}"
     
     headers = {
@@ -30,7 +29,6 @@ def get_images_via_storage_api():
         response.raise_for_status()
         data = response.json()
         
-        # Get all children (files/folders) in the root of the repository
         children = data.get("children", [])
         
         if not children:
@@ -42,30 +40,27 @@ def get_images_via_storage_api():
         
         for child in children:
             child_uri = child.get("uri", "")
-            is_folder = child.get("folder", False)
             
-            # If it's a folder, it represents an image or a tag directory
             if child_uri:
-                # Remove leading slash if exists
                 clean_name = child_uri.lstrip('/')
-                
-                # Fetch detailed metadata for this specific item to get its timestamp
                 detail_url = f"{url}{child_uri}"
+                
                 detail_resp = requests.get(detail_url, auth=(USER, PASSWORD), headers=headers, verify=False)
                 
                 date_str = "Unknown"
                 if detail_resp.status_code == 200:
                     detail_data = detail_resp.json()
-                    # Fallback chain for dates: lastModified -> created
-                    date_str = detail_data.get("lastModified", detail_data.get("created", "Unknown"))
+                    raw_date = detail_data.get("lastModified", detail_data.get("created", "Unknown"))
                     
-                    if date_str != "Unknown":
+                    if raw_date != "Unknown":
                         try:
-                            # Format date nicely
-                            dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                            # Safely parsing Artifactory ISO date format (e.g., 2026-06-11T11:40:22.123Z)
+                            # Cleaning the milliseconds and 'Z' suffix for compatibility
+                            clean_date_str = raw_date.split('.')[0].replace('Z', '').replace('T', ' ')
+                            dt = datetime.strptime(clean_date_str, "%Y-%m-%d %H:%M:%S")
                             date_str = dt.strftime("%Y-%m-%d %H:%M:%S")
-                        except ValueError:
-                            pass
+                        except Exception:
+                            date_str = raw_date  # Fallback to raw string if parsing fails
                 
                 print(f"{clean_name:<45} | {date_str:<20}")
 
