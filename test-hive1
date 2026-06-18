@@ -72,6 +72,67 @@ vi /veridiski/hive-server/conf/core-site.xml
 </configuration>
 
 
+vi /veridiski/hive-server/conf/hdfs-site.xml
+
+<configuration>
+</configuration>
+
+vi /veridiski/hive-server/conf/hive-site.xml
+
+
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<configuration>
+     <!-- 1. UZAK HIVE METASTORE BAĞLANTISI -->
+     <property>
+         <name>hive.metastore.uris</name>
+         <value>thrift://UZAK_METASTORE_IP_ADRESI:9083</value>
+     </property>
+	 <property>
+         <name>hive.server2.thrift.bind.host</name>
+         <value>0.0.0.0</value>
+     </property>
+         <!-- 2. SERVİS PORT TANIMLAMASI -->
+     <property>
+         <name>hive.server2.thrift.port</name>
+         <value>10050</value>
+     </property>
+     <!-- 3. MINIO (S3A) PROTOKOL AYARLARI -->
+     <property>
+         <name>fs.s3a.endpoint</name>
+         <value>http://MINIO_SERVER_IP_ADRESI:9000</value>
+     </property>
+     <property>
+         <name>fs.s3a.access.key</name>
+         <value>MINIO_ACCESS_KEY_DEGERI</value>
+     </property>
+     <property>
+         <name>fs.s3a.secret.key</name>
+         <value>MINIO_SECRET_KEY_DEGERI</value>
+     </property>
+     <property>
+         <name>fs.s3a.path.style.access</name>
+         <value>true</value>
+     </property>
+     <property>
+         <name>fs.s3a.impl</name>
+         <value>org.apache.hadoop.fs.s3a.S3AFileSystem</value>
+     </property>
+     <!-- 4. STANDALONE GÜVENLİK VE ERİŞİM AYARLARI -->
+     <property>
+         <name>hive.server2.authentication</name>
+         <value>NONE</value>
+     </property>
+     <!-- Dataiku servis kullanıcısı uyuşmazlığını engellemek için proxy özelliğini kapatıyoruz -->
+     <property>
+         <name>hive.server2.enable.doAs</name>
+         <value>false</value>
+     </property>
+     <property>
+         <name>hive.exec.scratchdir</name>
+         <value>/veridiski/hive-server/tmp</value>
+     </property>	 
+</configuration>
 
 
 
