@@ -33,6 +33,15 @@ echo $JAVA_HOME
 echo $HADOOP_HOME
 echo $HIVE_HOME
 
+# 1. Eski Guava jar dosyasını kaldırıp yerine güncel Hadoop kütüphanesini yerleştirme
+rm -f /veridiski/hive-server/hive/lib/guava-*.jar
+cp /veridiski/hive-server/hadoop/share/hadoop/common/lib/guava-*.jar /veridiski/hiveserver/hive/lib/
+# 2. MinIO/S3A entegrasyonunu sağlayan AWS kütüphanelerini Hive altına kopyalama
+cp /veridiski/hive-server/hadoop/share/hadoop/tools/lib/hadoop-aws-3.3.4.jar /veridiski/
+hive-server/hive/lib/
+cp /veridiski/hive-server/hadoop/share/hadoop/tools/lib/aws-java-sdk-bundle-*.jar /
+veridiski/hive-server/hive/lib/
+
 
 find $HADOOP_HOME -name "*aws*"
 Beklenen:
@@ -133,6 +142,50 @@ vi /veridiski/hive-server/conf/hive-site.xml
          <value>/veridiski/hive-server/tmp</value>
      </property>	 
 </configuration>
+
+
+
+
+
+cp
+$HIVE_HOME/conf/hive-log4j2.properties.template
+/veridiski/hive-server/conf/hive-log4j2.properties
+
+vi /veridiski/hive-server/conf/hive-log4j2.properties
+
+${sys:hive.log.dir}
+
+/veridiski/hive-server/logs
+
+export HADOOP_CONF_DIR=/veridiski/hive-server/conf
+export HIVE_CONF_DIR=/veridiski/hive-server/con
+
+
+nohup $HIVE_HOME/bin/hiveserver2
+>/veridiski/hive-server/logs/hs2.out 2>&1 &
+
+yada
+
+nohup hive --service hiveserver2 > /veridiski/hive-server/logs/hiveServer2.log 2>&1 &
+
+jps
+netstat -tulnp | grep 10050
+ps -ef | grep hiveserver2
+ss -lntp | grep 10050
+
+
+$HIVE_HOME/bin/beeline
+-u jdbc:hive2://localhost:10050/default
+
+show databases;
+show tables;
+
+
+tail -f /veridiski/hive-server/logs/hs2.out
+jdbc:hive2://<HIVE_SERVER_IP>:10050/default
+
+
+
 
 
 
