@@ -188,6 +188,23 @@ jdbc:hive2://<HIVE_SERVER_IP>:10050/default
 
 
 
+<property>
+    <name>hive.server2.webui.enable</name>
+    <value>false</value>
+  </property>
 
+  <property>
+    <name>hive.server2.active.passive.ha.enable</name>
+    <value>false</value>
+  </property>
+
+  <property>
+    <name>hive.exec.scratchdir</name>
+    <value>/tmp/hive</value>
+  </property>
+  <property>
+    <name>hive.user.install.directory</name>
+    <value>/tmp/hive</value>
+  </property>
 
 
