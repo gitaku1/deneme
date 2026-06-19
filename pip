@@ -2,67 +2,98 @@ import os
 import subprocess
 import sys
 import json
-from collections import defaultdict
 
-# Taranacak olası Python binary dizinleri
-POSSIBLE_PATHS = [
+# Temel arama dizinleri
+SEARCH_DIRS = [
     "/usr/bin",
     "/usr/local/bin",
     "/opt",
+    "/usr/sbin",
+    "/usr/local/sbin"
 ]
 
-def find_python_binaries():
-    """Sistemdeki benzersiz Python çalıştırılabilir dosyalarını bulur."""
-    py_binaries = set()
+def find_all_python_binaries():
+    """Sistemdeki benzersiz ve gecerli Python binary dosyalarini bulur."""
+    binaries = set()
     
-    # 1. Mevcut çalışan Python'ı ekle
-    py_binaries.add(sys.executable)
+    # Mevcut calisan Python'i ekle
+    binaries.add(os.path.realpath(sys.executable))
     
-    # 2. Yaygın dizinleri tara
-    for base_path in POSSIBLE_PATHS:
-        if not os.path.exists(base_path):
+    # 3.6 ile 3.12 arasindaki surumlerin hedef isimleri
+    target_versions = ["3.6", "3.7", "3.8", "3.9", "3.10", "3.11", "3.12", "3"]
+    target_names = ["python" + ver for ver in target_versions] + ["python"]
+    
+    for base_dir in SEARCH_DIRS:
+        if not os.path.exists(base_dir):
             continue
-        for root, dirs, files in os.walk(base_path):
-            # Derinlere çok fazla inerek vakit kaybetmemek için limit
-            if root.count(os.sep) - base_path.count(os.sep) > 2:
+            
+        # Alt dizinleri derinlemesine tara
+        for root, dirs, files in os.walk(base_dir):
+            # Cok derin dizinlere inerek vakit kaybetmeyi onle
+            if root.count(os.sep) - base_dir.count(os.sep) > 3:
                 continue
+                
             for file in files:
-                # Sadece python3, python3.x biçimindeki çalıştırılabilir dosyaları al
-                if (file.startswith("python") and 
-                    (file == "python" or file[6].isdigit()) and 
-                    not file.endswith("-config")):
-                    
+                if file in target_names:
                     full_path = os.path.join(root, file)
+                    # Dosyanin calistirilabilir ve gercek bir dosya oldugunu kontrol et
                     if os.path.isfile(full_path) and os.access(full_path, os.X_OK):
-                        # Sembolik bağları çözerek gerçek yolu bul (çift sayımı önlemek için)
                         real_path = os.path.realpath(full_path)
-                        py_binaries.add(real_path)
+                        binaries.add(real_path)
                         
-    return sorted(list(py_binaries))
+    return sorted(list(binaries))
 
-def get_python_packages(python_bin):
-    """Verilen Python binary'si için site-packages konumunu ve paketleri döner."""
-    # Python içinden site-packages ve kurulu paketleri alan güvenli bir kod çalıştırıyoruz
-    script = """
-import site, json, pkg_resources
+def get_packages_safely(python_bin):
+    """Her Python surumu icin en uygun yontemle site-packages ve paketleri bulur."""
+    # pkg_resources hatasini cozmek icin dinamik fallback mekanizmasi iceren inline script
+    inline_script = """
+import sys
+import json
+import site
+
+# 1. site-packages yollarini tespit et
 try:
     paths = site.getsitepackages()
 except AttributeError:
-    from distutils.sysconfig import get_python_lib
-    paths = [get_python_lib()]
+    try:
+        from distutils.sysconfig import get_python_lib
+        paths = [get_python_lib()]
+    except ImportError:
+        paths = sys.path
 
 packages = {}
-for dist in pkg_resources.working_set:
-    packages[dist.project_name] = dist.version
+
+# 2. Modern Python'lar icin importlib.metadata dene (Python 3.8+)
+try:
+    import importlib.metadata as meta
+    for dist in meta.distributions():
+        packages[dist.metadata['Name']] = dist.version
+except ImportError:
+    # 3. Eski Python'lar icin pkg_resources dene (Python 3.6 - 3.7)
+    try:
+        import pkg_resources
+        for dist in pkg_resources.working_set:
+            packages[dist.project_name] = dist.version
+    except ImportError:
+        # 4. O da yoksa fallback olarak pip list komutunu dene
+        try:
+            import subprocess
+            res = subprocess.run([sys.executable, "-m", "pip", "list", "--format=json"], capture_output=True, text=True)
+            if res.returncode == 0:
+                pip_data = json.loads(res.stdout)
+                for item in pip_data:
+                    packages[item['name']] = item['version']
+        except Exception:
+            pass
 
 print(json.dumps({"paths": paths, "packages": packages}))
 """
     try:
         result = subprocess.run(
-            [python_bin, "-c", script],
+            [python_bin, "-c", inline_script],
             capture_output=True,
             text=True,
-            timeout=15
+            timeout=20
         )
         if result.returncode == 0:
             return json.loads(result.stdout.strip())
@@ -72,287 +103,53 @@ print(json.dumps({"paths": paths, "packages": packages}))
 
 def main():
     print("=" * 80)
-    print(" Linux Sunucusu Python ve site-packages Tarayıcı ".center(80, "#"))
+    print(" Linux Python Environment & site-packages Scanner ".center(80, "#"))
     print("=" * 80)
-    print("Python binleri aranıyor, bu işlem biraz zaman alabilir...\n")
+    print("[*] Python binary dosyalari araniyor (3.6 - 3.12)...")
     
-    binaries = find_python_binaries()
+    binaries = find_all_python_binaries()
     
     if not binaries:
-        print("[-] Hiçbir Python kurulumu tespit edilemedi.")
+        print("[-] Hicbir Python kurulumu tespit edilemedi.")
         return
 
+    print(f"[+] Toplam {len(binaries)} adet benzersiz Python kurulumu bulundu.\n")
+
     for py_bin in binaries:
-        # Python versiyonunu al
+        # Detayli versiyon bilgisini ogren
         try:
             ver_res = subprocess.run([py_bin, "--version"], capture_output=True, text=True)
             py_version = ver_res.stdout.strip() if ver_res.stdout else ver_res.stderr.strip()
         except Exception:
             py_version = "Bilinmeyen Versiyon"
 
-        print(f"\n🚀 Python Yolu   : {py_bin}")
-        print(f"   Versiyon      : {py_version}")
+        print(f"🚀 PYTHON YOLU   : {py_bin}")
+        print(f"   VERSION       : {py_version}")
         
-        data = get_python_packages(py_bin)
+        data = get_packages_safely(py_bin)
         
         if not data:
-            print("   ⚠️  Paket bilgileri alınamadı (İzin sorunu veya eksik pkg_resources).")
+            print("   ⚠️  Hata: Paket bilgileri ve site-packages yollari okunamadi.")
             print("-" * 80)
             continue
             
-        print("   site-packages :")
+        print("   SITE-PACKAGES :")
         for path in data["paths"]:
-            print(f"     └─ {path}")
+            if path.strip():
+                print(f"     └─ {path}")
             
-        print("\n   Kurulu Paketler:")
+        print("\n   KURULU PAKETLER VE VERSIYONLARI:")
         packages = data["packages"]
         if not packages:
-            print("     (Hiçbir üçüncü parti paket bulunamadı)")
+            print("     (Bu ortamda ucuncu parti paket bulunamadi veya pip eksik)")
         else:
-            # Tablo düzeninde gösterim (Sol: Paket Adı, Sağ: Versiyon)
-            print(f"     {'Paket Adı'.ljust(35)} | {'Versiyon'.ljust(15)}")
-            print(f"     {'-'*35}-+-{'-'*15}")
+            # Hizalanmis tablo yapisi
+            print(f"     {'Paket Adi'.ljust(40)} | {'Versiyon'.ljust(20)}")
+            print(f"     {'-'*40}-+-{'-'*20}")
             for pkg_name, pkg_ver in sorted(packages.items()):
-                print(f"     {pkg_name.ljust(35)} | {pkg_ver.ljust(15)}")
+                print(f"     {pkg_name.ljust(40)} | {pkg_ver.ljust(20)}")
                 
         print("\n" + "=" * 80)
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-"""
-Linux sunucudaki tüm Python interpreterlarını bulur,
-her interpreter için site-packages içindeki kurulu paketleri listeler.
-
-Özellikler:
-- python / python3 / python3.x interpreterlarını otomatik bulur
-- venv, conda, custom path destekler
-- site-packages yollarını gösterir
-- Paket adı + versiyon listeler
-- Çıktıyı düzenli tablo halinde verir
-- Hatalı interpreterları atlar
-"""
-
-import os
-import site
-import shutil
-import subprocess
-from pathlib import Path
-from collections import defaultdict
-
-
-def run_command(cmd):
-    try:
-        result = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=20
-        )
-        return result.stdout.strip()
-    except Exception:
-        return None
-
-
-def find_python_binaries():
-    """
-    Sistemdeki python binarylerini bulur.
-    """
-    found = set()
-
-    search_paths = [
-        "/usr/bin",
-        "/usr/local/bin",
-        "/bin",
-        "/opt",
-        "/data",
-        "/data01",
-        str(Path.home()),
-    ]
-
-    # PATH üzerinden
-    for binary in [
-        "python",
-        "python3",
-        "python3.8",
-        "python3.9",
-        "python3.10",
-        "python3.11",
-        "python3.12",
-    ]:
-        path = shutil.which(binary)
-        if path:
-            found.add(os.path.realpath(path))
-
-    # Manuel tarama
-    for base in search_paths:
-        if not os.path.exists(base):
-            continue
-
-        for root, dirs, files in os.walk(base):
-            # Çok büyük dizinlerde yavaşlamasın
-            if "proc" in root or "sys" in root or "dev" in root:
-                continue
-
-            for file in files:
-                if file.startswith("python"):
-                    full_path = os.path.join(root, file)
-
-                    if os.access(full_path, os.X_OK):
-                        found.add(os.path.realpath(full_path))
-
-    return sorted(found)
-
-
-def get_python_info(python_bin):
-    """
-    Interpreter bilgilerini alır.
-    """
-    version_cmd = [
-        python_bin,
-        "-c",
-        "import sys; print(sys.version.split()[0])"
-    ]
-
-    version = run_command(version_cmd)
-
-    if not version:
-        return None
-
-    site_cmd = [
-        python_bin,
-        "-c",
-        """
-import site, json
-paths = []
-
-try:
-    paths.extend(site.getsitepackages())
-except Exception:
-    pass
-
-try:
-    paths.append(site.getusersitepackages())
-except Exception:
-    pass
-
-print("\\n".join(set(paths)))
-"""
-    ]
-
-    site_packages = run_command(site_cmd)
-
-    pip_cmd = [
-        python_bin,
-        "-m",
-        "pip",
-        "list",
-        "--format=freeze"
-    ]
-
-    packages_raw = run_command(pip_cmd)
-
-    packages = []
-
-    if packages_raw:
-        for line in packages_raw.splitlines():
-            if "==" in line:
-                pkg, ver = line.split("==", 1)
-                packages.append((pkg, ver))
-
-    return {
-        "python_bin": python_bin,
-        "version": version,
-        "site_packages": site_packages.splitlines() if site_packages else [],
-        "packages": sorted(packages, key=lambda x: x[0].lower())
-    }
-
-
-def print_separator(char="-", length=120):
-    print(char * length)
-
-
-def main():
-    print_separator("=")
-    print("TÜM PYTHON INTERPRETER VE PACKAGE ANALİZİ")
-    print_separator("=")
-
-    python_bins = find_python_binaries()
-
-    if not python_bins:
-        print("Python interpreter bulunamadı.")
-        return
-
-    print(f"\nBulunan interpreter sayısı: {len(python_bins)}\n")
-
-    all_data = []
-
-    for py in python_bins:
-        info = get_python_info(py)
-
-        if info:
-            all_data.append(info)
-
-    for idx, info in enumerate(all_data, start=1):
-
-        print_separator("=")
-        print(f"[{idx}] PYTHON INTERPRETER")
-        print_separator("=")
-
-        print(f"Binary   : {info['python_bin']}")
-        print(f"Version  : {info['version']}")
-
-        print("\nSITE-PACKAGES:")
-        if info["site_packages"]:
-            for sp in info["site_packages"]:
-                print(f"  - {sp}")
-        else:
-            print("  Bulunamadı")
-
-        print("\nKURULU PAKETLER:")
-        print_separator("-", 80)
-
-        if info["packages"]:
-            print(f"{'PACKAGE':40} {'VERSION':20}")
-            print_separator("-", 80)
-
-            for pkg, ver in info["packages"]:
-                print(f"{pkg:40} {ver:20}")
-
-            print_separator("-", 80)
-            print(f"Toplam Paket: {len(info['packages'])}")
-
-        else:
-            print("Paket bulunamadı veya pip erişemedi.")
-
-        print("\n")
-
-    print_separator("=")
-    print("ANALİZ TAMAMLANDI")
-    print_separator("=")
-
-
-if __name__ == "__main__":
-    main()
-
-
-
