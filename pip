@@ -1,0 +1,107 @@
+import os
+import subprocess
+import sys
+
+
+def find_python_executables():
+    """Sistemde bulunabilecek potansiyel Python executable yollarını arar."""
+    # Yaygın arama dizinleri
+    search_paths = [
+        "/usr/bin",
+        "/usr/local/bin",
+        "/opt",
+        os.path.expanduser("~/.local/bin"),
+    ]
+
+    # PATH çevre değişkenindeki dizinleri de ekleyelim
+    path_env = os.environ.get("PATH", "")
+    if path_env:
+        search_paths.extend(path_env.split(os.pathsep))
+
+    valid_pythons = set()
+
+    for path in set(search_paths):
+        if not os.path.exists(path):
+            continue
+
+        # Dizin altındaki dosyaları incele
+        try:
+            for filename in os.listdir(path):
+                # Sadece python, python3, python3.x biçimindeki çalıştırılabilir dosyaları al
+                if filename.startswith("python") and not filename.endswith(
+                    "-config"
+                ):
+                    full_path = os.path.join(path, filename)
+
+                    # Sembolik bağları (symlink) gerçek yollarına çözerek mükerrerliği önleyelim
+                    if os.path.isfile(full_path) and os.access(
+                        full_path, os.X_OK
+                    ):
+                        real_path = os.path.realpath(full_path)
+                        valid_pythons.add(real_path)
+        except PermissionError:
+            continue
+
+    return sorted(list(valid_pythons))
+
+
+def get_pip_list(python_path):
+    """Verilen Python yolu için 'pip list' çıktısını alır."""
+    try:
+        # 'python -m pip list' komutu en güvenli yöntemdir
+        result = subprocess.run(
+            [python_path, "-m", "pip", "list"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=15,
+        )
+
+        if result.returncode == 0:
+            return result.stdout
+        else:
+            return f"Muhtemelen pip yüklü değil veya hata alındı.\nHata: {result.stderr.strip()}"
+    except Exception as e:
+        return f"Komut çalıştırılamadı: {str(e)}"
+
+
+def main():
+    print("Sistemdeki Python versiyonları taranıyor...\n")
+    python_paths = find_python_executables()
+
+    if not python_paths:
+        print("Hiçbir Python executable dosyası bulunamadı.")
+        return
+
+    print(f"Toplam {len(python_paths)} benzersiz Python yolu bulundu.\n")
+    print("=" * 60)
+
+    for py_path in python_paths:
+        # Python versiyon bilgisini al
+        try:
+            ver_result = subprocess.run(
+                [py_path, "--version"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            version_str = (
+                ver_result.stdout.strip()
+                if ver_result.stdout
+                else ver_result.stderr.strip()
+            )
+        except Exception:
+            version_str = "Versiyon alınamadı"
+
+        print(f"YOL: {py_path}")
+        print(f"VERSİYON: {version_str}")
+        print("-" * 60)
+
+        # Pip listesini getir ve yazdır
+        pip_output = get_pip_list(py_path)
+        print(pip_output)
+        print("=" * 60 + "\n")
+
+
+if __name__ == "__main__":
+    main()
