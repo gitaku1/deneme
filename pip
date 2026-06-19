@@ -3,23 +3,24 @@ import subprocess
 import sys
 import json
 
-# Temel arama dizinleri
+# Python calistirilabilir dosyalarinin aranacagi ana dizinler
 SEARCH_DIRS = [
     "/usr/bin",
     "/usr/local/bin",
     "/opt",
     "/usr/sbin",
-    "/usr/local/sbin"
+    "/usr/local/sbin",
+    "/var/lib"
 ]
 
 def find_all_python_binaries():
-    """Sistemdeki benzersiz ve gecerli Python binary dosyalarini bulur."""
+    """Sistemdeki tum benzersiz Python binary dosyalarini tespit eder."""
     binaries = set()
     
     # Mevcut calisan Python'i ekle
     binaries.add(os.path.realpath(sys.executable))
     
-    # 3.6 ile 3.12 arasindaki surumlerin hedef isimleri
+    # 3.6 ile 3.12 arasindaki olasi tum surum isimleri
     target_versions = ["3.6", "3.7", "3.8", "3.9", "3.10", "3.11", "3.12", "3"]
     target_names = ["python" + ver for ver in target_versions] + ["python"]
     
@@ -27,73 +28,102 @@ def find_all_python_binaries():
         if not os.path.exists(base_dir):
             continue
             
-        # Alt dizinleri derinlemesine tara
         for root, dirs, files in os.walk(base_dir):
-            # Cok derin dizinlere inerek vakit kaybetmeyi onle
+            # Derinligi sinirlayarak taramayi hizlandir
             if root.count(os.sep) - base_dir.count(os.sep) > 3:
                 continue
                 
             for file in files:
                 if file in target_names:
                     full_path = os.path.join(root, file)
-                    # Dosyanin calistirilabilir ve gercek bir dosya oldugunu kontrol et
                     if os.path.isfile(full_path) and os.access(full_path, os.X_OK):
                         real_path = os.path.realpath(full_path)
                         binaries.add(real_path)
                         
     return sorted(list(binaries))
 
-def get_packages_safely(python_bin):
-    """Her Python surumu icin en uygun yontemle site-packages ve paketleri bulur."""
-    # pkg_resources hatasini cozmek icin dinamik fallback mekanizmasi iceren inline script
+def get_packages_with_all_methods(python_bin):
+    """Bütün kütüphaneleri yakalamak için 4 farklı methodu birleştirir."""
+    # Hicbir path ve package kacmamasi icin gelistirilmis inline script
     inline_script = """
 import sys
 import json
+import os
 import site
 
-# 1. site-packages yollarini tespit et
+# 1. Tum olasi site-packages ve library pathlerini topla
+paths = set()
 try:
-    paths = site.getsitepackages()
-except AttributeError:
-    try:
-        from distutils.sysconfig import get_python_lib
-        paths = [get_python_lib()]
-    except ImportError:
-        paths = sys.path
+    for p in site.getsitepackages():
+        paths.add(p)
+except Exception:
+    pass
+
+try:
+    paths.add(site.getusersitepackages())
+except Exception:
+    pass
+
+# sys.path icindeki gecerli tum dizinleri ekle (Eksik path kalmamasi icin)
+for p in sys.path:
+    if p and os.path.isdir(p):
+        paths.add(os.path.realpath(p))
 
 packages = {}
 
-# 2. Modern Python'lar icin importlib.metadata dene (Python 3.8+)
+# METHOD A: importlib.metadata (Python 3.8+ icin en kesin cozum)
 try:
     import importlib.metadata as meta
     for dist in meta.distributions():
-        packages[dist.metadata['Name']] = dist.version
-except ImportError:
-    # 3. Eski Python'lar icin pkg_resources dene (Python 3.6 - 3.7)
-    try:
-        import pkg_resources
-        for dist in pkg_resources.working_set:
-            packages[dist.project_name] = dist.version
-    except ImportError:
-        # 4. O da yoksa fallback olarak pip list komutunu dene
-        try:
-            import subprocess
-            res = subprocess.run([sys.executable, "-m", "pip", "list", "--format=json"], capture_output=True, text=True)
-            if res.returncode == 0:
-                pip_data = json.loads(res.stdout)
-                for item in pip_data:
-                    packages[item['name']] = item['version']
-        except Exception:
-            pass
+        name = dist.metadata.get('Name') or dist.name
+        if name:
+            packages[name.lower()] = {"name": name, "version": dist.version}
+except Exception:
+    pass
 
-print(json.dumps({"paths": paths, "packages": packages}))
+# METHOD B: pkg_resources (Eski surumler veya setuptools ortamları icin)
+try:
+    import pkg_resources
+    for dist in pkg_resources.working_set:
+        packages[dist.project_name.lower()] = {"name": dist.project_name, "version": dist.version}
+except Exception:
+    pass
+
+# METHOD C: CLI pip list (Eger yukaridakiler kacirdiysa direkt pip sorgusu)
+try:
+    import subprocess
+    res = subprocess.run([sys.executable, "-m", "pip", "list", "--format=json"], capture_output=True, text=True)
+    if res.returncode == 0:
+        pip_data = json.loads(res.stdout)
+        for item in pip_data:
+            packages[item['name'].lower()] = {"name": item['name'], "version": item['version']}
+except Exception:
+    pass
+
+# METHOD D: Dahili standart kütüphaneleri ve sys.modules kontrolü
+# Bu adim yukaridaki package manager'lar tarafindan kaydedilmemis yonetilen modulleri yakalar
+try:
+    for mod_name in list(sys.modules.keys()):
+        if mod_name and not mod_name.startswith('_') and mod_name.lower() not in packages:
+            mod = sys.modules[mod_name]
+            if hasattr(mod, '__version__'):
+                packages[mod_name.lower()] = {"name": mod_name, "version": mod.__version__}
+            elif hasattr(mod, 'version'):
+                packages[mod_name.lower()] = {"name": mod_name, "version": str(mod.version)}
+except Exception:
+    pass
+
+# Sonuclari sade bir sozluk yapisina donustur
+final_packages = {v["name"]: v["version"] for k, v in packages.items()}
+
+print(json.dumps({"paths": sorted(list(paths)), "packages": final_packages}))
 """
     try:
         result = subprocess.run(
             [python_bin, "-c", inline_script],
             capture_output=True,
             text=True,
-            timeout=20
+            timeout=25
         )
         if result.returncode == 0:
             return json.loads(result.stdout.strip())
@@ -102,54 +132,53 @@ print(json.dumps({"paths": paths, "packages": packages}))
     return None
 
 def main():
-    print("=" * 80)
-    print(" Linux Python Environment & site-packages Scanner ".center(80, "#"))
-    print("=" * 80)
-    print("[*] Python binary dosyalari araniyor (3.6 - 3.12)...")
+    print("=" * 90)
+    print(" Linux Hybrid Python Environment & Deep site-packages Scanner ".center(90, "#"))
+    print("=" * 90)
+    print("[*] Python yukleme dizinleri ve binary dosyalari araniyor...")
     
     binaries = find_all_python_binaries()
     
     if not binaries:
-        print("[-] Hicbir Python kurulumu tespit edilemedi.")
+        print("[-] Sistemde hicbir Python kurulumu tespit edilemedi.")
         return
 
-    print(f"[+] Toplam {len(binaries)} adet benzersiz Python kurulumu bulundu.\n")
+    print(f"[+] Toplam {len(binaries)} adet benzersiz Python ortami optimize edildi.\n")
 
     for py_bin in binaries:
-        # Detayli versiyon bilgisini ogren
         try:
             ver_res = subprocess.run([py_bin, "--version"], capture_output=True, text=True)
             py_version = ver_res.stdout.strip() if ver_res.stdout else ver_res.stderr.strip()
         except Exception:
-            py_version = "Bilinmeyen Versiyon"
+            py_version = "Bilinmeyen Version"
 
-        print(f"🚀 PYTHON YOLU   : {py_bin}")
+        print(f"🚀 PYTHON BINARY : {py_bin}")
         print(f"   VERSION       : {py_version}")
         
-        data = get_packages_safely(py_bin)
+        data = get_packages_with_all_methods(py_bin)
         
         if not data:
-            print("   ⚠️  Hata: Paket bilgileri ve site-packages yollari okunamadi.")
-            print("-" * 80)
+            print("   ⚠️  Kritik Hata: Bu Python ortamindan veri toplanamadi.")
+            print("-" * 90)
             continue
             
-        print("   SITE-PACKAGES :")
+        print("   TARANAN TUM SITE-PACKAGES VE LIBRARY DIZINLERI :")
         for path in data["paths"]:
             if path.strip():
-                print(f"     └─ {path}")
+                print(f"     ├─ {path}")
             
-        print("\n   KURULU PAKETLER VE VERSIYONLARI:")
+        print("\n   YAKALANAN TUM KUTUPHANELER VE VERSIYONLARI:")
         packages = data["packages"]
         if not packages:
-            print("     (Bu ortamda ucuncu parti paket bulunamadi veya pip eksik)")
+            print("     (Bu ortamda kayitli ucuncu parti veya dinamik kütüphane bulunamadi)")
         else:
-            # Hizalanmis tablo yapisi
-            print(f"     {'Paket Adi'.ljust(40)} | {'Versiyon'.ljust(20)}")
-            print(f"     {'-'*40}-+-{'-'*20}")
+            # Hizalanmis genis tablo yapisi
+            print(f"     {'Paket Adi'.ljust(45)} | {'Versiyon'.ljust(25)}")
+            print(f"     {'-'*45}-+-{'-'*25}")
             for pkg_name, pkg_ver in sorted(packages.items()):
-                print(f"     {pkg_name.ljust(40)} | {pkg_ver.ljust(20)}")
+                print(f"     {pkg_name.ljust(45)} | {pkg_ver.ljust(25)}")
                 
-        print("\n" + "=" * 80)
+        print("\n" + "=" * 90)
 
 if __name__ == "__main__":
     main()
