@@ -1,43 +1,52 @@
+import pandas as pd
 from tabulate import tabulate
 
-# 1. Listeni bu üç tırnak arasına doğrudan yapıştır.
-# Satır ne kadar uzun veya kaç kelime olursa olsun fark etmez.
-elindeki_ham_metin = """
+# 1. DEPO A Verilerini buraya yapıştır
+depo_a_metin = """
 Bilgisayar A 16 Core 1.2 TB
-Ana Sunucu Merkez Ofis 32 Core 2.4 TB
+Ana Sunucu 32 Core 2.4 TB
 Yedek PC 8 Core 500 GB
-Canavar Oyun Bilgisayari 64 Core 4.0 TB
+Sadece A_da Olan 4 Core 250 GB
 """
 
-# 2. Sütun başlıkların
-basliklar = ["Cihaz Adı", "İşlemci", "Depolama"]
+# 2. DEPO B Verilerini buraya yapıştır
+depo_b_metin = """
+Bilgisayar A 16 Core 1.2 TB
+Ana Sunucu 64 Core 4.0 TB
+Yedek PC 8 Core 500 GB
+Sadece B_de Olan 12 Core 1.0 TB
+"""
 
-veri_listesi = []
+def metni_isle(metin):
+    cihazlar = {}
+    for satir in metin.strip().split("\n"):
+        satir = satir.strip()
+        if not satir:
+            continue
+        kelimeler = satir.split()
+        if len(kelimeler) >= 5:
+            depolama = kelimeler[-2] + kelimeler[-1]
+            islemci = kelimeler[-4] + kelimeler[-3]
+            cihaz_adi = "".join(kelimeler[:-4])
+            # Karşılaştırma kolay olsun diye İşlemci ve Depolamayı birleştiriyoruz
+            cihazlar[cihaz_adi] = f"{islemci} / {depolama}"
+    return cihazlar
 
-# Satır satır oku
-for satir in elindeki_ham_metin.strip().split("\n"):
-    satir = satir.strip()
-    if not satir:
-        continue
-    
-    # Satırı tüm boşluklardan kelime kelime ayır
-    kelimeler = satir.split()
-    
-    if len(kelimeler) >= 5:  # En az: İsim (1) + Miktar (1) + Core (1) + Miktar (1) + TB/GB (1) = 5 kelime olmalı
-        # 1. En sondaki iki kelime depolamadır (örn: 1.2, TB) -> Boşluksuz birleştir
-        depolama = kelimeler[-2] + kelimeler[-1]
-        
-        # 2. Ondan önceki iki kelime işlemcidir (örn: 16, Core) -> Boşluksuz birleştir
-        islemci = kelimeler[-4] + kelimeler[-3]
-        
-        # 3. Geriye kalan en baştaki tüm kelimeler cihazın adıdır -> Boşluksuz birleştir
-        cihaz_adi_kelimeleri = kelimeler[:-4]
-        cihaz_adi = "".join(cihaz_adi_kelimeleri)
-        
-        # Tam 3 sütun olarak listeye ekle
-        veri_listesi.append([cihaz_adi, islemci, depolama])
+# Depoları sözlük yapısına çeviriyoruz
+depo_a_sozluk = metni_isle(depo_a_metin)
+depo_b_sozluk = metni_isle(depo_b_metin)
 
-# Tabloyu oluştur (Çizgili grid formatında)
-tablo = tabulate(veri_listesi, headers=basliklar, tablefmt="grid")
+# Pandas DataFrame ile iki depoyu cihaz isimlerine göre (Outer Join) yan yana birleştiriyoruz
+df_a = pd.DataFrame(list(depo_a_sozluk.items()), columns=['Cihaz Adı', 'DEPO A (İşlemci/Disk)'])
+df_b = pd.DataFrame(list(depo_b_sozluk.items()), columns=['Cihaz Adı', 'DEPO B (İşlemci/Disk)'])
+
+# Birebir aynı isimleri aynı satıra getirir, olmayanlara boşluk bırakır
+Karsilastirma_df = pd.merge(df_a, df_b, on='Cihaz Adı', how='outer')
+
+# Eksik olan (olmayan) cihazların karşısına çizgi çekelim ki tablo düzgün dursun
+Karsilastirma_df.fillna("- Mevcut Değil -", inplace=True)
+
+# Çıktıyı şık bir tablo formatına getiriyoruz
+tablo = tabulate(Karsilastirma_df, headers='keys', tablefmt='grid', showindex=False)
 
 print(tablo)
