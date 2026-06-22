@@ -1,48 +1,43 @@
 from tabulate import tabulate
-import re
 
-# 1. Elindeki listeyi bu üç tırnak arasına OLDUĞU GİBİ yapıştır.
-# Satır aralarında ne kadar düzensiz boşluk olursa olsun kod temizleyecektir.
+# 1. Listeni bu üç tırnak arasına doğrudan yapıştır.
+# Satır ne kadar uzun veya kaç kelime olursa olsun fark etmez.
 elindeki_ham_metin = """
-Bilgisayar A      16 Core    1.2 TB
-Sunucu B          32 Core    2.4 TB
-Yedek PC          8 Core     500 GB
-İş İstasyonu       64 Core    4.0 TB
+Bilgisayar A 16 Core 1.2 TB
+Ana Sunucu Merkez Ofis 32 Core 2.4 TB
+Yedek PC 8 Core 500 GB
+Canavar Oyun Bilgisayari 64 Core 4.0 TB
 """
 
-# 2. Tablonun sütun başlıklarını buraya yazabilirsin
-basliklar = ["Cihaz Adı", "İşlemci (Core)", "Depolama (Disk)"]
+# 2. Sütun başlıkların
+basliklar = ["Cihaz Adı", "İşlemci", "Depolama"]
 
-# --- ARKA PLANDA ÇALIŞAN TEMİZLİK VE TABLO OLUŞTURMA KODU ---
 veri_listesi = []
 
-# Metni satır satır bölüyoruz
+# Satır satır oku
 for satir in elindeki_ham_metin.strip().split("\n"):
-    if satir.strip():  # Boş satırları atla
-        # Satır içindeki birden fazla boşluğu tek bir ayırıcı gibi algıla ve böl
-        # regex (re.split) kullanarak en az 2 boşluk olan yerlerden veya tablardan ayırırız
-        parcalar = re.split(r'\s{2,}', satir.strip())
+    satir = satir.strip()
+    if not satir:
+        continue
+    
+    # Satırı tüm boşluklardan kelime kelime ayır
+    kelimeler = satir.split()
+    
+    if len(kelimeler) >= 5:  # En az: İsim (1) + Miktar (1) + Core (1) + Miktar (1) + TB/GB (1) = 5 kelime olmalı
+        # 1. En sondaki iki kelime depolamadır (örn: 1.2, TB) -> Boşluksuz birleştir
+        depolama = kelimeler[-2] + kelimeler[-1]
         
-        # Eğer yukarıdaki regex tek boşluklu isimleri (örn: "Yedek PC") ayırırsa diye alternatif:
-        # Eğer verilerin arasında net tab veya çoklu boşluk varsa üstteki çok iyi çalışır.
-        # Her kelimeyi tamamen bitişik yapmak istersen parçaları temizliyoruz:
-        temiz_parcalar = [p.replace(" ", "") for p in parcalar if p]
+        # 2. Ondan önceki iki kelime işlemcidir (örn: 16, Core) -> Boşluksuz birleştir
+        islemci = kelimeler[-4] + kelimeler[-3]
         
-        # Eğer satırda tam 3 bilgi oluştuysa listeye ekle
-        if len(temiz_parcalar) == 3:
-            veri_listesi.append(temiz_parcalar)
-        else:
-            # Eğer boşluklar çok düzensizse, kelime bazlı bölüp birleştirme alternatifi:
-            kelimeler = satir.split()
-            if len(kelimeler) >= 3:
-                # Son iki kelime işlemci ve disk olacağı için onları ayırıyoruz
-                disk = kelimeler[-2] + kelimeler[-1] if "TB" in kelimeler[-1] or "GB" in kelimeler[-1] else kelimeler[-1]
-                # Duruma göre basitçe kelimeleri gruplayabiliriz. 
-                # En garanti temizlik için yukarıdaki temiz_parcalar listesini kullanıyoruz.
-                veri_listesi.append(temiz_parcalar)
+        # 3. Geriye kalan en baştaki tüm kelimeler cihazın adıdır -> Boşluksuz birleştir
+        cihaz_adi_kelimeleri = kelimeler[:-4]
+        cihaz_adi = "".join(cihaz_adi_kelimeleri)
+        
+        # Tam 3 sütun olarak listeye ekle
+        veri_listesi.append([cihaz_adi, islemci, depolama])
 
-# Tabloyu 'grid' formatında oluştur (Notepad++ için en temizi)
+# Tabloyu oluştur (Çizgili grid formatında)
 tablo = tabulate(veri_listesi, headers=basliklar, tablefmt="grid")
 
-# Sonucu ekrana yazdır
 print(tablo)
