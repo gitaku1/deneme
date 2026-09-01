@@ -1,114 +1,396 @@
-{
-    "meta": {
-        "label": "Toxic-BERT vLLM Guardrail",
-        "description": "Sorguları vLLM üzerindeki bir sınıflandırma modeline göndererek denetler."
-    },
-    "operatesOnQueries": true,
-    "operatesOnResponses": false,
-    "mayRespondDirectlyToQueries": true,
-    "params": [
-        {
-            "name": "vllm_endpoint",
-            "type": "STRING",
-            "label": "vLLM Classify URL",
-            "mandatory": true,
-            "description": "Örn: http://HOST:PORT/classify"
-        },
-        {
-            "name": "model_id",
-            "type": "STRING",
-            "label": "Model ID",
-            "defaultValue": "toxic-bert",
-            "mandatory": true
-        },
-        {
-            "name": "toxicity_threshold",
-            "type": "DOUBLE",
-            "label": "Hassasiyet Eşiği",
-            "defaultValue": 0.8,
-            "description": "Bu skorun (0.0 - 1.0) üzerindeki mesajlar engellenir."
-        }
+#!/usr/bin/env python3
+
+import subprocess
+import datetime
+import os
+
+# ============================================================
+# ENVIRONMENT
+# ============================================================
+
+os.environ["KUBECONFIG"] = "/home/dataiku/.kube/namespace"
+os.environ["PATH"] = f"/veri1/kubeconf:{os.environ.get('PATH', '')}"
+
+os.environ["http_proxy"] = ""
+os.environ["https_proxy"] = ""
+os.environ["no_proxy"] = ""
+
+
+# ============================================================
+# TEST CONFIGURATION
+# ============================================================
+
+# TEST POD PREFIX'INI BURAYA YAZ
+POD_PREFIX = "TEST-POD-PREFIX-"
+
+# TEST PODUNDA KONTROL ETMEK İSTEDİĞİN PID
+TARGET_PID = "86"
+
+# Sadece bilgi amaçlı eşik
+MAX_ALLOWED_MINUTES = 230
+
+
+# ============================================================
+# LOG
+# ============================================================
+
+def log(message):
+    print(
+        f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] "
+        f"{message}",
+        flush=True
+    )
+
+
+# ============================================================
+# TEST
+# ============================================================
+
+def check_test_pods():
+
+    log("==============================================")
+    log("TEST POD WATCHDOG BAŞLADI")
+    log("==============================================")
+
+    log(f"KUBECONFIG : {os.environ['KUBECONFIG']}")
+    log(f"POD PREFIX : {POD_PREFIX}")
+    log(f"TARGET PID : {TARGET_PID}")
+    log(f"TIMEOUT    : {MAX_ALLOWED_MINUTES} dakika")
+
+    # --------------------------------------------------------
+    # 1. kubectl get pods
+    # --------------------------------------------------------
+
+    cmd = [
+        "kubectl",
+        "get",
+        "pods",
+        "--no-headers",
+        "-o",
+        "custom-columns=NAME:.metadata.name,STATUS:.status.phase,START:.metadata.creationTimestamp"
     ]
 
+    log("Kubernetes pod listesi alınıyor...")
+
+    result = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
+    )
+
+    if result.returncode != 0:
+
+        log("❌ kubectl get pods BAŞARISIZ")
+
+        if result.stderr:
+            log(f"kubectl stderr: {result.stderr}")
+
+        return
+
+    log("✅ kubectl get pods başarılı")
+
+    found = False
 
 
+    # --------------------------------------------------------
+    # 2. Podları incele
+    # --------------------------------------------------------
 
-curl -X POST http://HOST:PORT/classify \
--H "Content-Type: application/json" \
--d '{"model":"toxic-bert","input":["test"]}'
+    for line in result.stdout.strip().splitlines():
+
+        if not line.strip():
+            continue
+
+        parts = line.split()
+
+        if len(parts) < 3:
+            continue
+
+        pod_name = parts[0]
+        pod_status = parts[1]
+        creation_time_str = parts[2]
 
 
+        # Sadece test pod prefix
+        if not pod_name.startswith(POD_PREFIX):
+            continue
 
 
+        found = True
+
+        log("----------------------------------------------")
+        log(f"TEST POD BULUNDU : {pod_name}")
+        log(f"STATUS            : {pod_status}")
+        log(f"CREATION TIME     : {creation_time_str}")
 
 
-
-
-import requests
-import logging
-from dataiku.llm.guardrails import BaseGuardRail, GuardRailQueryResponse
-
-logger = logging.getLogger(__name__)
-
-class MyGuardRail(BaseGuardRail):
-    def __init__(self, config):
-        self.config = config
-        self.endpoint = config.get("vllm_endpoint")
-        self.model_id = config.get("model_id", "toxic-bert")
-        self.threshold = float(config.get("toxicity_threshold", 0.8))
-
-    def process(self, context, query=None, response=None):
-        # Sadece sorgu aşamasında çalışıyoruz (LLM'e gitmeden önce)
-        if query is None:
-            return None
-
-        user_text = query.get_last_message()
-        if not user_text:
-            return None
-
-        # vLLM'in beklediği JSON yapısı
-        payload = {
-            "model": self.model_id,
-            "input": [user_text]
-        }
+        # ----------------------------------------------------
+        # Pod yaşı
+        # ----------------------------------------------------
 
         try:
-            # vLLM sunucusuna istek gönder
-            res = requests.post(self.endpoint, json=payload, timeout=10)
-            res.raise_for_status()
-            output = res.json()
 
-            # vLLM/Classify standart çıktısını parse etme:
-            # Yapı: {"data": [{"predictions": [{"label": "toxic", "score": 0.99}, ...]}]}
-            try:
-                predictions = output.get("data", [{}])[0].get("predictions", [])
-            except (IndexError, AttributeError):
-                logger.warning("vLLM yanıtı beklenen 'data' formatında değil.")
-                return None
+            creation_time = datetime.datetime.fromisoformat(
+                creation_time_str.replace("Z", "+00:00")
+            )
 
-            toxic_score = 0
-            for pred in predictions:
-                if pred.get("label") == "toxic":
-                    toxic_score = pred.get("score", 0)
-                    break
-            
-            # Eğer toxic etiketi bulunamadıysa ama liste doluysa en yüksek skoru al
-            if toxic_score == 0 and predictions:
-                toxic_score = max(p.get("score", 0) for p in predictions)
+            now = datetime.datetime.now(datetime.timezone.utc)
 
-            # Eşik değer kontrolü
-            if toxic_score >= self.threshold:
-                logger.info(f"Yüksek toksisite saptandı: {toxic_score}")
-                return GuardRailQueryResponse(
-                    modified_query=None,
-                    direct_response="Üzgünüm, mesajınız topluluk kuralları (toksisite) nedeniyle engellendi.",
-                    instructions_to_add=None
-                )
+            duration_minutes = (
+                now - creation_time
+            ).total_seconds() / 60.0
 
-            # Temiz ise hiçbir şey yapmadan devam et
-            return None
+            log(
+                f"ÇALIŞMA SÜRESİ    : "
+                f"{duration_minutes:.1f} dakika"
+            )
 
         except Exception as e:
-            logger.error(f"Guardrail vLLM bağlantı hatası: {str(e)}")
-            # Hata durumunda güvenli tarafta kalmak için geçişe izin veriyoruz
-            return None}
+
+            log(f"⚠️ Creation time hesaplanamadı: {e}")
+            duration_minutes = -1
+
+
+        # ----------------------------------------------------
+        # Sadece RUNNING ise exec testi yap
+        # ----------------------------------------------------
+
+        if pod_status.upper() != "RUNNING":
+
+            log(
+                f"Pod RUNNING değil ({pod_status}). "
+                f"Exec/PID testi yapılmayacak."
+            )
+
+            continue
+
+
+        # ----------------------------------------------------
+        # 3. kubectl exec bağlantı testi
+        # ----------------------------------------------------
+
+        log("kubectl exec bağlantısı test ediliyor...")
+
+        exec_test_cmd = [
+            "kubectl",
+            "exec",
+            pod_name,
+            "--",
+            "sh",
+            "-c",
+            "echo DATAIKU_WATCHDOG_EXEC_OK"
+        ]
+
+        exec_test = subprocess.run(
+            exec_test_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+
+        if exec_test.returncode != 0:
+
+            log("❌ kubectl exec BAŞARISIZ")
+
+            if exec_test.stderr:
+                log(
+                    f"kubectl exec stderr: "
+                    f"{exec_test.stderr}"
+                )
+
+            continue
+
+
+        log("✅ kubectl exec BAŞARILI")
+
+        if exec_test.stdout:
+            log(
+                f"Exec output: "
+                f"{exec_test.stdout.strip()}"
+            )
+
+
+        # ----------------------------------------------------
+        # 4. PID kontrolü
+        # ----------------------------------------------------
+
+        log(
+            f"PID {TARGET_PID} kontrol ediliyor..."
+        )
+
+        pid_check_cmd = [
+            "kubectl",
+            "exec",
+            pod_name,
+            "--",
+            "test",
+            "-d",
+            f"/proc/{TARGET_PID}"
+        ]
+
+        pid_check = subprocess.run(
+            pid_check_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+
+
+        if pid_check.returncode == 0:
+
+            log(
+                f"✅ PID {TARGET_PID} mevcut"
+            )
+
+            # ------------------------------------------------
+            # PID bilgilerini sadece OKU
+            # ------------------------------------------------
+
+            ps_cmd = [
+                "kubectl",
+                "exec",
+                pod_name,
+                "--",
+                "ps",
+                "-p",
+                TARGET_PID,
+                "-o",
+                "pid,ppid,stat,etime,wchan:30,cmd"
+            ]
+
+            ps_result = subprocess.run(
+                ps_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+
+            if ps_result.returncode == 0:
+
+                log(
+                    f"PID {TARGET_PID} bilgisi:"
+                )
+
+                for ps_line in ps_result.stdout.strip().splitlines():
+                    log(f"    {ps_line}")
+
+            else:
+
+                log(
+                    f"⚠️ PID {TARGET_PID} mevcut fakat "
+                    f"ps bilgisi alınamadı."
+                )
+
+                if ps_result.stderr:
+                    log(
+                        f"ps stderr: "
+                        f"{ps_result.stderr}"
+                    )
+
+
+        else:
+
+            log(
+                f"ℹ️ PID {TARGET_PID} mevcut değil."
+            )
+
+
+        # ----------------------------------------------------
+        # 5. /proc status bilgisi
+        # ----------------------------------------------------
+
+        if pid_check.returncode == 0:
+
+            status_cmd = [
+                "kubectl",
+                "exec",
+                pod_name,
+                "--",
+                "sh",
+                "-c",
+                f"cat /proc/{TARGET_PID}/status | "
+                f"grep -E 'State|Threads|VmRSS'"
+            ]
+
+            status_result = subprocess.run(
+                status_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+
+            if status_result.returncode == 0:
+
+                log(
+                    f"/proc/{TARGET_PID}/status:"
+                )
+
+                for status_line in status_result.stdout.strip().splitlines():
+                    log(f"    {status_line}")
+
+
+        # ----------------------------------------------------
+        # 6. WCHAN bilgisi
+        # ----------------------------------------------------
+
+        if pid_check.returncode == 0:
+
+            wchan_cmd = [
+                "kubectl",
+                "exec",
+                pod_name,
+                "--",
+                "cat",
+                f"/proc/{TARGET_PID}/wchan"
+            ]
+
+            wchan_result = subprocess.run(
+                wchan_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+
+            if wchan_result.returncode == 0:
+
+                log(
+                    f"WCHAN PID {TARGET_PID}: "
+                    f"{wchan_result.stdout.strip()}"
+                )
+
+
+        # ----------------------------------------------------
+        # ÖNEMLİ:
+        # BURADA HİÇBİR KILL / GDB / DELETE YOK
+        # ----------------------------------------------------
+
+        log(
+            f"✅ {pod_name} analiz edildi. "
+            f"HERHANGİ BİR PROCESS'E MÜDAHALE EDİLMEDİ."
+        )
+
+
+    # --------------------------------------------------------
+    # Pod bulunamadı
+    # --------------------------------------------------------
+
+    if not found:
+
+        log(
+            f"⚠️ '{POD_PREFIX}*' prefix'ine sahip "
+            f"pod bulunamadı."
+        )
+
+
+    log("==============================================")
+    log("TEST POD WATCHDOG BİTTİ")
+    log("==============================================")
+
+
+# ============================================================
+# ENTRY POINT
+# ============================================================
+
+if __name__ == "__main__":
+    check_test_pods()
