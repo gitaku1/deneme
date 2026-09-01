@@ -394,3 +394,333 @@ def check_test_pods():
 
 if __name__ == "__main__":
     check_test_pods()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#!/usr/bin/env python3
+
+import subprocess
+import datetime
+import os
+
+# ============================================================
+# TEST KONFİGÜRASYONU (İhtiyacınıza Göre Düzenleyin)
+# ============================================================
+
+# Test etmek istediğiniz pod adının prefix'i veya tam adı
+POD_PREFIX = "test-pod-prefix-"  
+
+# Test etmek istediğiniz pod içindeki hedef PID (Örn: 1234, 1, vb.)
+TARGET_PID = "86"
+
+# Test kolaylığı için eşik süresi (dakika cinsinden)
+MAX_ALLOWED_MINUTES = 230
+
+
+# ============================================================
+# ENVIRONMENT
+# ============================================================
+
+os.environ["KUBECONFIG"] = "/home/dataiku/.kube/namespace"
+os.environ["PATH"] = f"/veri1/kubeconf:{os.environ.get('PATH', '')}"
+
+# Proxy temizleme
+os.environ["http_proxy"] = ""
+os.environ["https_proxy"] = ""
+os.environ["no_proxy"] = ""
+
+
+# ============================================================
+# LOG
+# ============================================================
+
+def log(message):
+    print(
+        f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] "
+        f"{message}",
+        flush=True
+    )
+
+
+# ============================================================
+# MAIN (DRY-RUN / SADECE LOG)
+# ============================================================
+
+def check_and_exit_job_dry_run():
+
+    log("Dataiku stuck-job watchdog [DRY-RUN MODU] başlatıldı.")
+
+    # --------------------------------------------------------
+    # 1. Kubernetes bağlantısını test et
+    # --------------------------------------------------------
+
+    try:
+        kubectl_version = subprocess.run(
+            [
+                "kubectl",
+                "version",
+                "--client",
+                "--output=yaml"
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+
+        if kubectl_version.returncode != 0:
+            log(
+                "HATA: kubectl çalıştırılamadı. "
+                "Kubernetes bağlantısı/konfigürasyonu kontrol edilmeli."
+            )
+            if kubectl_version.stderr:
+                log(f"kubectl stderr: {kubectl_version.stderr}")
+            return
+
+    except Exception as e:
+        log(
+            f"HATA: kubectl başlatılamadı: "
+            f"{type(e).__name__}: {e}"
+        )
+        return
+
+    # --------------------------------------------------------
+    # 2. Pod listesini al
+    # --------------------------------------------------------
+
+    cmd = [
+        "kubectl",
+        "get",
+        "pods",
+        "--no-headers",
+        "-o",
+        "custom-columns=NAME:.metadata.name,STATUS:.status.phase,START:.metadata.creationTimestamp"
+    ]
+
+    try:
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+    except Exception as e:
+        log(
+            f"HATA: kubectl get pods çalıştırılamadı: "
+            f"{type(e).__name__}: {e}"
+        )
+        return
+
+    if result.returncode != 0:
+        log(
+            "HATA: Kubernetes pod listesi alınamadı. "
+            "Bu durum PID bulunamadı olarak yorumlanmayacak."
+        )
+        if result.stderr:
+            log(f"kubectl stderr: {result.stderr}")
+        return
+
+    output = result.stdout
+    found_target_pod = False
+
+    # --------------------------------------------------------
+    # 3. Podları incele
+    # --------------------------------------------------------
+
+    for line in output.strip().splitlines():
+
+        if not line.strip():
+            continue
+
+        parts = line.split()
+
+        if len(parts) < 3:
+            continue
+
+        pod_name = parts[0]
+        pod_status = parts[1]
+        creation_time_str = parts[2]
+
+        # ----------------------------------------------------
+        # Sadece hedef test podları
+        # ----------------------------------------------------
+
+        if not pod_name.startswith(POD_PREFIX):
+            continue
+
+        if pod_status.upper() != "RUNNING":
+            continue
+
+        found_target_pod = True
+
+        # ----------------------------------------------------
+        # Pod yaşını hesapla
+        # ----------------------------------------------------
+
+        try:
+            creation_time = datetime.datetime.fromisoformat(
+                creation_time_str.replace("Z", "+00:00")
+            )
+        except Exception as e:
+            log(
+                f"{pod_name}: creationTimestamp parse edilemedi: {e}"
+            )
+            continue
+
+        now = datetime.datetime.now(datetime.timezone.utc)
+
+        duration_minutes = (
+            now - creation_time
+        ).total_seconds() / 60.0
+
+        log(
+            f"Hedef pod bulundu: {pod_name} | "
+            f"Durum={pod_status} | "
+            f"Süre={duration_minutes:.1f} dakika"
+        )
+
+        # ----------------------------------------------------
+        # Eşik dolmadıysa müdahale edilmiyor
+        # ----------------------------------------------------
+
+        if duration_minutes < MAX_ALLOWED_MINUTES:
+            log(
+                f"{pod_name}: "
+                f"{duration_minutes:.1f} < "
+                f"{MAX_ALLOWED_MINUTES} dakika. "
+                f"[DRY-RUN] Müdahale edilmiyor."
+            )
+            continue
+
+        # ====================================================
+        # EŞİK AŞILDI
+        # ====================================================
+
+        log(
+            f"{pod_name}: Süre eşiği aşıldı. "
+            f"PID {TARGET_PID} kontrol ediliyor."
+        )
+
+        # ----------------------------------------------------
+        # 4. Önce kubectl exec bağlantısını doğrula
+        # ----------------------------------------------------
+
+        exec_test_cmd = [
+            "kubectl",
+            "exec",
+            pod_name,
+            "--",
+            "sh",
+            "-c",
+            "echo DATAIKU_EXEC_OK"
+        ]
+
+        exec_test = subprocess.run(
+            exec_test_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+
+        if exec_test.returncode != 0:
+            log(
+                f"HATA: {pod_name} için kubectl exec başarısız. "
+                f"Bu durum PID {TARGET_PID} yok anlamına GELMEZ."
+            )
+            if exec_test.stderr:
+                log(
+                    f"{pod_name} kubectl exec stderr: "
+                    f"{exec_test.stderr}"
+                )
+            continue
+
+        log(
+            f"{pod_name}: kubectl exec bağlantısı başarılı."
+        )
+
+        # ----------------------------------------------------
+        # 5. PID gerçekten var mı?
+        # ----------------------------------------------------
+
+        pid_check_cmd = [
+            "kubectl",
+            "exec",
+            pod_name,
+            "--",
+            "test",
+            "-d",
+            f"/proc/{TARGET_PID}"
+        ]
+
+        pid_check = subprocess.run(
+            pid_check_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+
+        if pid_check.returncode != 0:
+            log(
+                f"{pod_name}: PID {TARGET_PID} bulunamadı. "
+                f"[DRY-RUN] GDB çalıştırılması simüle edilmeyecek."
+            )
+            continue
+
+        log(
+            f"{pod_name}: PID {TARGET_PID} mevcut."
+        )
+
+        # ====================================================
+        # 6. SIMÜLE EDİLEN GDB ADIMI (DRY-RUN)
+        # ====================================================
+
+        log(
+            f"[DRY-RUN SIMÜLASYON]: {pod_name} içerisinde PID {TARGET_PID} bulundu. "
+            f"Gerçek çalışmada şu komut tetiklenecekti:\n"
+            f"-> kubectl exec {pod_name} -- gdb -q -n -batch -p {TARGET_PID} -ex 'call (void)_exit(0)'"
+        )
+
+        log(
+            f"[DRY-RUN SIMÜLASYON]: GDB müdahalesi başarıyla simüle edildi. "
+            f"Gerçek bir müdahale yapılmadı."
+        )
+
+    # --------------------------------------------------------
+    # 7. Hedef pod yoksa
+    # --------------------------------------------------------
+
+    if not found_target_pod:
+        log(
+            f"Aktif hedef pod bulunamadı. "
+            f"Prefix={POD_PREFIX}, Status=RUNNING"
+        )
+
+
+if __name__ == "__main__":
+    check_and_exit_job_dry_run()
