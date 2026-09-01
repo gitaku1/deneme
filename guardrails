@@ -3,104 +3,231 @@
 import subprocess
 import datetime
 import os
+import sys
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+KUBECONFIG = "/home/dataiku/.kube/namespace"
+
+NAMESPACE = "dataiku-prod"
+
+# Write the beginning of the target pod name here.
+# Example:
+# dataiku-exec-prediction-scoring-
+POD_PREFIX = "TEST-POD-PREFIX-"
+
+# Write the target PID here.
+TARGET_PID = "86"
 
 # ============================================================
 # ENVIRONMENT
 # ============================================================
 
-os.environ["KUBECONFIG"] = "/home/dataiku/.kube/namespace"
-os.environ["PATH"] = f"/veri1/kubeconf:{os.environ.get('PATH', '')}"
+os.environ["KUBECONFIG"] = KUBECONFIG
+os.environ["PATH"] = (
+    f"/veri1/kubeconf:{os.environ.get('PATH', '')}"
+)
 
 os.environ["http_proxy"] = ""
 os.environ["https_proxy"] = ""
+os.environ["HTTP_PROXY"] = ""
+os.environ["HTTPS_PROXY"] = ""
 os.environ["no_proxy"] = ""
+os.environ["NO_PROXY"] = ""
 
 
 # ============================================================
-# TEST CONFIGURATION
-# ============================================================
-
-# TEST POD PREFIX'INI BURAYA YAZ
-POD_PREFIX = "TEST-POD-PREFIX-"
-
-# TEST PODUNDA KONTROL ETMEK İSTEDİĞİN PID
-TARGET_PID = "86"
-
-# Sadece bilgi amaçlı eşik
-MAX_ALLOWED_MINUTES = 230
-
-
-# ============================================================
-# LOG
+# LOG FUNCTION
 # ============================================================
 
 def log(message):
+    timestamp = datetime.datetime.now().strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+
     print(
-        f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] "
-        f"{message}",
+        f"[{timestamp}] {message}",
         flush=True
     )
 
 
 # ============================================================
-# TEST
+# RUN COMMAND
 # ============================================================
 
-def check_test_pods():
+def run_command(cmd):
 
-    log("==============================================")
-    log("TEST POD WATCHDOG BAŞLADI")
-    log("==============================================")
+    try:
 
-    log(f"KUBECONFIG : {os.environ['KUBECONFIG']}")
-    log(f"POD PREFIX : {POD_PREFIX}")
-    log(f"TARGET PID : {TARGET_PID}")
-    log(f"TIMEOUT    : {MAX_ALLOWED_MINUTES} dakika")
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+
+        return result
+
+    except Exception as e:
+
+        log(
+            f"COMMAND EXCEPTION: "
+            f"{type(e).__name__}: {e}"
+        )
+
+        return None
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def check_pods():
+
+    log("==================================================")
+    log("TEST POD WATCHDOG STARTED")
+    log("==================================================")
+
+    log(f"KUBECONFIG = {KUBECONFIG}")
+    log(f"NAMESPACE  = {NAMESPACE}")
+    log(f"POD_PREFIX = {POD_PREFIX}")
+    log(f"TARGET_PID = {TARGET_PID}")
 
     # --------------------------------------------------------
-    # 1. kubectl get pods
+    # STEP 1 - TEST KUBECTL ACCESS
     # --------------------------------------------------------
 
-    cmd = [
+    log("STEP 1: Testing Kubernetes access")
+
+    test_cmd = [
         "kubectl",
+        "--kubeconfig",
+        KUBECONFIG,
+        "-n",
+        NAMESPACE,
         "get",
-        "pods",
-        "--no-headers",
-        "-o",
-        "custom-columns=NAME:.metadata.name,STATUS:.status.phase,START:.metadata.creationTimestamp"
+        "pods"
     ]
 
-    log("Kubernetes pod listesi alınıyor...")
+    test_result = run_command(test_cmd)
 
-    result = subprocess.run(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
-    )
+    if test_result is None:
 
-    if result.returncode != 0:
+        log("ERROR: Could not execute kubectl")
+        return
 
-        log("❌ kubectl get pods BAŞARISIZ")
+    if test_result.returncode != 0:
 
-        if result.stderr:
-            log(f"kubectl stderr: {result.stderr}")
+        log("ERROR: Kubernetes access failed")
+
+        log(
+            f"STDERR: "
+            f"{test_result.stderr.strip()}"
+        )
 
         return
 
-    log("✅ kubectl get pods başarılı")
-
-    found = False
+    log("Kubernetes access successful")
 
 
     # --------------------------------------------------------
-    # 2. Podları incele
+    # STEP 2 - GET ALL PODS
     # --------------------------------------------------------
 
-    for line in result.stdout.strip().splitlines():
+    log(
+        f"STEP 2: Getting all pods from namespace "
+        f"{NAMESPACE}"
+    )
 
-        if not line.strip():
+    pods_cmd = [
+        "kubectl",
+        "--kubeconfig",
+        KUBECONFIG,
+        "-n",
+        NAMESPACE,
+        "get",
+        "pods",
+        "-o",
+        "custom-columns=NAME:.metadata.name,STATUS:.status.phase,START:.metadata.creationTimestamp",
+        "--no-headers"
+    ]
+
+    pods_result = run_command(pods_cmd)
+
+    if pods_result is None:
+
+        log("ERROR: Could not get pod list")
+        return
+
+    if pods_result.returncode != 0:
+
+        log("ERROR: kubectl get pods failed")
+
+        log(
+            f"STDERR: "
+            f"{pods_result.stderr.strip()}"
+        )
+
+        return
+
+
+    output = pods_result.stdout.strip()
+
+    if not output:
+
+        log(
+            f"No pods found in namespace {NAMESPACE}"
+        )
+
+        return
+
+
+    # --------------------------------------------------------
+    # STEP 3 - PRINT ALL PODS
+    # --------------------------------------------------------
+
+    log("--------------------------------------------------")
+    log("ALL PODS IN TARGET NAMESPACE")
+    log("--------------------------------------------------")
+
+    all_pod_names = []
+
+    for line in output.splitlines():
+
+        parts = line.split()
+
+        if len(parts) < 1:
             continue
+
+        pod_name = parts[0]
+
+        all_pod_names.append(pod_name)
+
+        log(f"POD FOUND: {line}")
+
+
+    log("--------------------------------------------------")
+    log(
+        f"TOTAL PODS FOUND: "
+        f"{len(all_pod_names)}"
+    )
+    log("--------------------------------------------------")
+
+
+    # --------------------------------------------------------
+    # STEP 4 - PREFIX MATCH
+    # --------------------------------------------------------
+
+    log(
+        f"STEP 4: Searching pods with prefix: "
+        f"{POD_PREFIX}"
+    )
+
+    matching_pods = []
+
+    for line in output.splitlines():
 
         parts = line.split()
 
@@ -111,116 +238,188 @@ def check_test_pods():
         pod_status = parts[1]
         creation_time_str = parts[2]
 
+        if pod_name.startswith(POD_PREFIX):
 
-        # Sadece test pod prefix
-        if not pod_name.startswith(POD_PREFIX):
-            continue
+            matching_pods.append(
+                (
+                    pod_name,
+                    pod_status,
+                    creation_time_str
+                )
+            )
 
 
-        found = True
+    if not matching_pods:
 
-        log("----------------------------------------------")
-        log(f"TEST POD BULUNDU : {pod_name}")
-        log(f"STATUS            : {pod_status}")
-        log(f"CREATION TIME     : {creation_time_str}")
+        log("NO MATCHING POD FOUND")
+
+        log(
+            "CHECK POD_PREFIX VALUE ABOVE"
+        )
+
+        log("AVAILABLE POD NAMES:")
+
+        for pod in all_pod_names:
+
+            log(f"  {pod}")
+
+        return
+
+
+    log(
+        f"MATCHING POD COUNT: "
+        f"{len(matching_pods)}"
+    )
+
+
+    # --------------------------------------------------------
+    # STEP 5 - ANALYZE MATCHING PODS
+    # --------------------------------------------------------
+
+    for (
+        pod_name,
+        pod_status,
+        creation_time_str
+    ) in matching_pods:
+
+        log("==================================================")
+        log(f"MATCHING POD: {pod_name}")
+        log(f"STATUS: {pod_status}")
+        log(f"CREATION TIME: {creation_time_str}")
 
 
         # ----------------------------------------------------
-        # Pod yaşı
+        # CALCULATE POD AGE
         # ----------------------------------------------------
 
         try:
 
-            creation_time = datetime.datetime.fromisoformat(
-                creation_time_str.replace("Z", "+00:00")
+            creation_time = (
+                datetime.datetime.fromisoformat(
+                    creation_time_str.replace(
+                        "Z",
+                        "+00:00"
+                    )
+                )
             )
 
-            now = datetime.datetime.now(datetime.timezone.utc)
+            now = datetime.datetime.now(
+                datetime.timezone.utc
+            )
 
             duration_minutes = (
                 now - creation_time
-            ).total_seconds() / 60.0
+            ).total_seconds() / 60
 
             log(
-                f"ÇALIŞMA SÜRESİ    : "
-                f"{duration_minutes:.1f} dakika"
+                f"AGE MINUTES: "
+                f"{duration_minutes:.2f}"
             )
 
         except Exception as e:
 
-            log(f"⚠️ Creation time hesaplanamadı: {e}")
-            duration_minutes = -1
+            log(
+                f"AGE CALCULATION ERROR: {e}"
+            )
 
 
         # ----------------------------------------------------
-        # Sadece RUNNING ise exec testi yap
+        # CHECK POD STATUS
         # ----------------------------------------------------
 
         if pod_status.upper() != "RUNNING":
 
             log(
-                f"Pod RUNNING değil ({pod_status}). "
-                f"Exec/PID testi yapılmayacak."
+                "POD IS NOT RUNNING"
+            )
+
+            log(
+                "PID CHECK WILL BE SKIPPED"
             )
 
             continue
 
 
+        log(
+            "POD IS RUNNING"
+        )
+
+
         # ----------------------------------------------------
-        # 3. kubectl exec bağlantı testi
+        # STEP 6 - EXEC TEST
         # ----------------------------------------------------
 
-        log("kubectl exec bağlantısı test ediliyor...")
+        log(
+            "Testing kubectl exec"
+        )
 
-        exec_test_cmd = [
+        exec_cmd = [
             "kubectl",
+            "--kubeconfig",
+            KUBECONFIG,
+            "-n",
+            NAMESPACE,
             "exec",
             pod_name,
             "--",
             "sh",
             "-c",
-            "echo DATAIKU_WATCHDOG_EXEC_OK"
+            "echo EXEC_TEST_SUCCESS"
         ]
 
-        exec_test = subprocess.run(
-            exec_test_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
+        exec_result = run_command(
+            exec_cmd
         )
 
-        if exec_test.returncode != 0:
+        if exec_result is None:
 
-            log("❌ kubectl exec BAŞARISIZ")
-
-            if exec_test.stderr:
-                log(
-                    f"kubectl exec stderr: "
-                    f"{exec_test.stderr}"
-                )
+            log(
+                "ERROR: EXEC COMMAND COULD NOT START"
+            )
 
             continue
 
 
-        log("✅ kubectl exec BAŞARILI")
+        if exec_result.returncode != 0:
 
-        if exec_test.stdout:
             log(
-                f"Exec output: "
-                f"{exec_test.stdout.strip()}"
+                "ERROR: KUBECTL EXEC FAILED"
+            )
+
+            log(
+                f"STDERR: "
+                f"{exec_result.stderr.strip()}"
+            )
+
+            continue
+
+
+        log(
+            "KUBECTL EXEC SUCCESS"
+        )
+
+        if exec_result.stdout.strip():
+
+            log(
+                f"EXEC OUTPUT: "
+                f"{exec_result.stdout.strip()}"
             )
 
 
         # ----------------------------------------------------
-        # 4. PID kontrolü
+        # STEP 7 - PID CHECK
         # ----------------------------------------------------
 
         log(
-            f"PID {TARGET_PID} kontrol ediliyor..."
+            f"Checking PID {TARGET_PID}"
         )
 
-        pid_check_cmd = [
+        pid_cmd = [
             "kubectl",
+            "--kubeconfig",
+            KUBECONFIG,
+            "-n",
+            NAMESPACE,
             "exec",
             pod_name,
             "--",
@@ -229,163 +428,151 @@ def check_test_pods():
             f"/proc/{TARGET_PID}"
         ]
 
-        pid_check = subprocess.run(
-            pid_check_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
+        pid_result = run_command(
+            pid_cmd
+        )
+
+        if pid_result is None:
+
+            log(
+                "ERROR: PID CHECK COMMAND FAILED"
+            )
+
+            continue
+
+
+        if pid_result.returncode != 0:
+
+            log(
+                f"PID {TARGET_PID} NOT FOUND"
+            )
+
+            if pid_result.stderr.strip():
+
+                log(
+                    f"PID CHECK STDERR: "
+                    f"{pid_result.stderr.strip()}"
+                )
+
+            continue
+
+
+        log(
+            f"PID {TARGET_PID} FOUND"
         )
 
 
-        if pid_check.returncode == 0:
+        # ----------------------------------------------------
+        # STEP 8 - PROCESS INFO
+        # ----------------------------------------------------
+
+        ps_cmd = [
+            "kubectl",
+            "--kubeconfig",
+            KUBECONFIG,
+            "-n",
+            NAMESPACE,
+            "exec",
+            pod_name,
+            "--",
+            "ps",
+            "-p",
+            TARGET_PID,
+            "-o",
+            "pid,ppid,stat,etime,wchan:30,cmd"
+        ]
+
+        ps_result = run_command(
+            ps_cmd
+        )
+
+        if (
+            ps_result is not None
+            and ps_result.returncode == 0
+        ):
 
             log(
-                f"✅ PID {TARGET_PID} mevcut"
+                f"PROCESS INFO FOR PID "
+                f"{TARGET_PID}:"
             )
 
-            # ------------------------------------------------
-            # PID bilgilerini sadece OKU
-            # ------------------------------------------------
-
-            ps_cmd = [
-                "kubectl",
-                "exec",
-                pod_name,
-                "--",
-                "ps",
-                "-p",
-                TARGET_PID,
-                "-o",
-                "pid,ppid,stat,etime,wchan:30,cmd"
-            ]
-
-            ps_result = subprocess.run(
-                ps_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
-
-            if ps_result.returncode == 0:
+            for ps_line in (
+                ps_result.stdout.strip().splitlines()
+            ):
 
                 log(
-                    f"PID {TARGET_PID} bilgisi:"
+                    f"  {ps_line}"
                 )
-
-                for ps_line in ps_result.stdout.strip().splitlines():
-                    log(f"    {ps_line}")
-
-            else:
-
-                log(
-                    f"⚠️ PID {TARGET_PID} mevcut fakat "
-                    f"ps bilgisi alınamadı."
-                )
-
-                if ps_result.stderr:
-                    log(
-                        f"ps stderr: "
-                        f"{ps_result.stderr}"
-                    )
-
 
         else:
 
             log(
-                f"ℹ️ PID {TARGET_PID} mevcut değil."
+                "PROCESS INFO COMMAND FAILED"
             )
 
 
         # ----------------------------------------------------
-        # 5. /proc status bilgisi
+        # STEP 9 - WCHAN
         # ----------------------------------------------------
 
-        if pid_check.returncode == 0:
+        wchan_cmd = [
+            "kubectl",
+            "--kubeconfig",
+            KUBECONFIG,
+            "-n",
+            NAMESPACE,
+            "exec",
+            pod_name,
+            "--",
+            "cat",
+            f"/proc/{TARGET_PID}/wchan"
+        ]
 
-            status_cmd = [
-                "kubectl",
-                "exec",
-                pod_name,
-                "--",
-                "sh",
-                "-c",
-                f"cat /proc/{TARGET_PID}/status | "
-                f"grep -E 'State|Threads|VmRSS'"
-            ]
+        wchan_result = run_command(
+            wchan_cmd
+        )
 
-            status_result = subprocess.run(
-                status_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
+        if (
+            wchan_result is not None
+            and wchan_result.returncode == 0
+        ):
+
+            log(
+                f"WCHAN: "
+                f"{wchan_result.stdout.strip()}"
             )
 
-            if status_result.returncode == 0:
+        else:
 
-                log(
-                    f"/proc/{TARGET_PID}/status:"
-                )
-
-                for status_line in status_result.stdout.strip().splitlines():
-                    log(f"    {status_line}")
-
-
-        # ----------------------------------------------------
-        # 6. WCHAN bilgisi
-        # ----------------------------------------------------
-
-        if pid_check.returncode == 0:
-
-            wchan_cmd = [
-                "kubectl",
-                "exec",
-                pod_name,
-                "--",
-                "cat",
-                f"/proc/{TARGET_PID}/wchan"
-            ]
-
-            wchan_result = subprocess.run(
-                wchan_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
+            log(
+                "WCHAN CHECK FAILED"
             )
 
-            if wchan_result.returncode == 0:
-
-                log(
-                    f"WCHAN PID {TARGET_PID}: "
-                    f"{wchan_result.stdout.strip()}"
-                )
-
 
         # ----------------------------------------------------
-        # ÖNEMLİ:
-        # BURADA HİÇBİR KILL / GDB / DELETE YOK
+        # NO ACTION
         # ----------------------------------------------------
 
         log(
-            f"✅ {pod_name} analiz edildi. "
-            f"HERHANGİ BİR PROCESS'E MÜDAHALE EDİLMEDİ."
+            "TEST COMPLETE"
         )
-
-
-    # --------------------------------------------------------
-    # Pod bulunamadı
-    # --------------------------------------------------------
-
-    if not found:
 
         log(
-            f"⚠️ '{POD_PREFIX}*' prefix'ine sahip "
-            f"pod bulunamadı."
+            "NO GDB EXECUTED"
+        )
+
+        log(
+            "NO PROCESS TERMINATED"
+        )
+
+        log(
+            "NO POD DELETED"
         )
 
 
-    log("==============================================")
-    log("TEST POD WATCHDOG BİTTİ")
-    log("==============================================")
+    log("==================================================")
+    log("TEST POD WATCHDOG FINISHED")
+    log("==================================================")
 
 
 # ============================================================
@@ -393,29 +580,8 @@ def check_test_pods():
 # ============================================================
 
 if __name__ == "__main__":
-    check_test_pods()
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    check_pods()
 
 
 
@@ -431,34 +597,37 @@ import datetime
 import os
 
 # ============================================================
-# TEST KONFİGÜRASYONU (İhtiyacınıza Göre Düzenleyin)
-# ============================================================
-
-# Test etmek istediğiniz pod adının prefix'i veya tam adı
-POD_PREFIX = "test-pod-prefix-"  
-
-# Test etmek istediğiniz pod içindeki hedef PID (Örn: 1234, 1, vb.)
-TARGET_PID = "86"
-
-# Test kolaylığı için eşik süresi (dakika cinsinden)
-MAX_ALLOWED_MINUTES = 230
-
-
-# ============================================================
 # ENVIRONMENT
 # ============================================================
 
 os.environ["KUBECONFIG"] = "/home/dataiku/.kube/namespace"
 os.environ["PATH"] = f"/veri1/kubeconf:{os.environ.get('PATH', '')}"
 
-# Proxy temizleme
+# Disable proxies
 os.environ["http_proxy"] = ""
 os.environ["https_proxy"] = ""
 os.environ["no_proxy"] = ""
 
 
 # ============================================================
-# LOG
+# CONFIGURATION
+# ============================================================
+
+# Target Kubernetes Namespace
+NAMESPACE = "dataiku-prod"
+
+# Target Pod prefix
+POD_PREFIX = "dataiku-exec-prediction-scoring-"
+
+# Maximum allowed duration in minutes (230 min = 3 hours 50 min)
+MAX_ALLOWED_MINUTES = 230
+
+# Dataiku recipe process PID inside container
+TARGET_PID = "86"
+
+
+# ============================================================
+# LOGGING
 # ============================================================
 
 def log(message):
@@ -470,15 +639,15 @@ def log(message):
 
 
 # ============================================================
-# MAIN (DRY-RUN / SADECE LOG)
+# MAIN
 # ============================================================
 
-def check_and_exit_job_dry_run():
+def check_and_exit_job():
 
-    log("Dataiku stuck-job watchdog [DRY-RUN MODU] başlatıldı.")
+    log("Dataiku stuck-job watchdog started.")
 
     # --------------------------------------------------------
-    # 1. Kubernetes bağlantısını test et
+    # 1. Test Kubernetes Connection
     # --------------------------------------------------------
 
     try:
@@ -495,29 +664,25 @@ def check_and_exit_job_dry_run():
         )
 
         if kubectl_version.returncode != 0:
-            log(
-                "HATA: kubectl çalıştırılamadı. "
-                "Kubernetes bağlantısı/konfigürasyonu kontrol edilmeli."
-            )
+            log("ERROR: kubectl execution failed. Check cluster connection or config.")
             if kubectl_version.stderr:
                 log(f"kubectl stderr: {kubectl_version.stderr}")
             return
 
     except Exception as e:
-        log(
-            f"HATA: kubectl başlatılamadı: "
-            f"{type(e).__name__}: {e}"
-        )
+        log(f"ERROR: Could not launch kubectl: {type(e).__name__}: {e}")
         return
 
     # --------------------------------------------------------
-    # 2. Pod listesini al
+    # 2. Retrieve Pod List in Namespace
     # --------------------------------------------------------
 
     cmd = [
         "kubectl",
         "get",
         "pods",
+        "-n",
+        NAMESPACE,
         "--no-headers",
         "-o",
         "custom-columns=NAME:.metadata.name,STATUS:.status.phase,START:.metadata.creationTimestamp"
@@ -531,16 +696,13 @@ def check_and_exit_job_dry_run():
             text=True
         )
     except Exception as e:
-        log(
-            f"HATA: kubectl get pods çalıştırılamadı: "
-            f"{type(e).__name__}: {e}"
-        )
+        log(f"ERROR: kubectl get pods command failed: {type(e).__name__}: {e}")
         return
 
     if result.returncode != 0:
         log(
-            "HATA: Kubernetes pod listesi alınamadı. "
-            "Bu durum PID bulunamadı olarak yorumlanmayacak."
+            f"ERROR: Could not fetch pods from namespace '{NAMESPACE}'. "
+            f"This will not be evaluated as PID missing."
         )
         if result.stderr:
             log(f"kubectl stderr: {result.stderr}")
@@ -550,7 +712,7 @@ def check_and_exit_job_dry_run():
     found_target_pod = False
 
     # --------------------------------------------------------
-    # 3. Podları incele
+    # 3. Process Pods
     # --------------------------------------------------------
 
     for line in output.strip().splitlines():
@@ -567,10 +729,7 @@ def check_and_exit_job_dry_run():
         pod_status = parts[1]
         creation_time_str = parts[2]
 
-        # ----------------------------------------------------
-        # Sadece hedef test podları
-        # ----------------------------------------------------
-
+        # Filter by Pod Prefix and RUNNING status
         if not pod_name.startswith(POD_PREFIX):
             continue
 
@@ -579,61 +738,51 @@ def check_and_exit_job_dry_run():
 
         found_target_pod = True
 
-        # ----------------------------------------------------
-        # Pod yaşını hesapla
-        # ----------------------------------------------------
-
+        # Calculate Pod Age
         try:
             creation_time = datetime.datetime.fromisoformat(
                 creation_time_str.replace("Z", "+00:00")
             )
         except Exception as e:
-            log(
-                f"{pod_name}: creationTimestamp parse edilemedi: {e}"
-            )
+            log(f"{pod_name}: Could not parse creationTimestamp: {e}")
             continue
 
         now = datetime.datetime.now(datetime.timezone.utc)
-
-        duration_minutes = (
-            now - creation_time
-        ).total_seconds() / 60.0
+        duration_minutes = (now - creation_time).total_seconds() / 60.0
 
         log(
-            f"Hedef pod bulundu: {pod_name} | "
-            f"Durum={pod_status} | "
-            f"Süre={duration_minutes:.1f} dakika"
+            f"Target pod found: {pod_name} | "
+            f"Status={pod_status} | "
+            f"Duration={duration_minutes:.1f} minutes"
         )
 
-        # ----------------------------------------------------
-        # Eşik dolmadıysa müdahale edilmiyor
-        # ----------------------------------------------------
-
+        # Skip if duration limit is not reached
         if duration_minutes < MAX_ALLOWED_MINUTES:
             log(
-                f"{pod_name}: "
-                f"{duration_minutes:.1f} < "
-                f"{MAX_ALLOWED_MINUTES} dakika. "
-                f"[DRY-RUN] Müdahale edilmiyor."
+                f"{pod_name}: Duration limit not exceeded "
+                f"({duration_minutes:.1f} < {MAX_ALLOWED_MINUTES} min). "
+                f"No action taken."
             )
             continue
 
         # ====================================================
-        # EŞİK AŞILDI
+        # DURATION EXCEEDED
         # ====================================================
 
         log(
-            f"{pod_name}: Süre eşiği aşıldı. "
-            f"PID {TARGET_PID} kontrol ediliyor."
+            f"{pod_name}: Duration limit exceeded. "
+            f"Checking PID {TARGET_PID}..."
         )
 
         # ----------------------------------------------------
-        # 4. Önce kubectl exec bağlantısını doğrula
+        # 4. Check kubectl exec connectivity
         # ----------------------------------------------------
 
         exec_test_cmd = [
             "kubectl",
             "exec",
+            "-n",
+            NAMESPACE,
             pod_name,
             "--",
             "sh",
@@ -650,27 +799,24 @@ def check_and_exit_job_dry_run():
 
         if exec_test.returncode != 0:
             log(
-                f"HATA: {pod_name} için kubectl exec başarısız. "
-                f"Bu durum PID {TARGET_PID} yok anlamına GELMEZ."
+                f"ERROR: kubectl exec failed for {pod_name}. "
+                f"This does NOT mean PID {TARGET_PID} is missing."
             )
             if exec_test.stderr:
-                log(
-                    f"{pod_name} kubectl exec stderr: "
-                    f"{exec_test.stderr}"
-                )
+                log(f"{pod_name} exec stderr: {exec_test.stderr}")
             continue
 
-        log(
-            f"{pod_name}: kubectl exec bağlantısı başarılı."
-        )
+        log(f"{pod_name}: kubectl exec connection successful.")
 
         # ----------------------------------------------------
-        # 5. PID gerçekten var mı?
+        # 5. Check if TARGET_PID exists
         # ----------------------------------------------------
 
         pid_check_cmd = [
             "kubectl",
             "exec",
+            "-n",
+            NAMESPACE,
             pod_name,
             "--",
             "test",
@@ -687,40 +833,83 @@ def check_and_exit_job_dry_run():
 
         if pid_check.returncode != 0:
             log(
-                f"{pod_name}: PID {TARGET_PID} bulunamadı. "
-                f"[DRY-RUN] GDB çalıştırılması simüle edilmeyecek."
+                f"{pod_name}: PID {TARGET_PID} not found in container. "
+                f"GDB step skipped."
             )
             continue
 
-        log(
-            f"{pod_name}: PID {TARGET_PID} mevcut."
-        )
+        log(f"{pod_name}: PID {TARGET_PID} exists.")
 
         # ====================================================
-        # 6. SIMÜLE EDİLEN GDB ADIMI (DRY-RUN)
+        # 6. EXECUTE GDB EXIT(0)
         # ====================================================
 
-        log(
-            f"[DRY-RUN SIMÜLASYON]: {pod_name} içerisinde PID {TARGET_PID} bulundu. "
-            f"Gerçek çalışmada şu komut tetiklenecekti:\n"
-            f"-> kubectl exec {pod_name} -- gdb -q -n -batch -p {TARGET_PID} -ex 'call (void)_exit(0)'"
+        log(f"{pod_name}: Attaching GDB to PID {TARGET_PID}...")
+
+        gdb_cmd = [
+            "kubectl",
+            "exec",
+            "-n",
+            NAMESPACE,
+            pod_name,
+            "--",
+            "gdb",
+            "-q",
+            "-n",
+            "-batch",
+            "-p",
+            TARGET_PID,
+            "-ex",
+            "call (void)_exit(0)"
+        ]
+
+        gdb_result = subprocess.run(
+            gdb_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True
         )
 
-        log(
-            f"[DRY-RUN SIMÜLASYON]: GDB müdahalesi başarıyla simüle edildi. "
-            f"Gerçek bir müdahale yapılmadı."
-        )
+        log(f"{pod_name}: GDB return code = {gdb_result.returncode}")
+
+        if gdb_result.stdout:
+            log(f"{pod_name}: GDB output:\n{gdb_result.stdout}")
+
+        if gdb_result.returncode == 0:
+            log(f"{pod_name}: GDB _exit(0) successfully executed.")
+            log(f"{pod_name}: Waiting for Dataiku runner to handle container exit.")
+        else:
+            log(f"ERROR: GDB execution failed for {pod_name}.")
 
     # --------------------------------------------------------
-    # 7. Hedef pod yoksa
+    # 7. No Matching Pod Found
     # --------------------------------------------------------
 
     if not found_target_pod:
         log(
-            f"Aktif hedef pod bulunamadı. "
-            f"Prefix={POD_PREFIX}, Status=RUNNING"
+            f"No matching running pod found in namespace '{NAMESPACE}' "
+            f"with prefix '{POD_PREFIX}'."
         )
 
 
+# ============================================================
+# ENTRY POINT
+# ============================================================
+
 if __name__ == "__main__":
-    check_and_exit_job_dry_run()
+    check_and_exit_job()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
