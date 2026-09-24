@@ -1,0 +1,143 @@
+# Var olan Dataiku base image'ınızı buraya yazın
+FROM your-dataiku-base-image:tag
+
+USER root
+
+# Çalışma dizini ve gerekli ortam değişkenleri
+ENV HADOOP_HOME=/veri01/hive-server2/hadoop
+ENV HIVE_HOME=/veri01/hive-server2/hive
+ENV JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk # Sunucunuzdaki OpenJDK yoluna göre güncelleyebilirsiniz
+ENV PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$HIVE_HOME/bin
+
+# Gerekli klasör yapısını oluşturma
+RUN mkdir -p /veri01/hive-server2/hive \
+    && mkdir -p /veri01/hive-server2/hadoop \
+    && mkdir -p /veri01/hive-server2/conf \
+    && mkdir -p /tmp/hive
+
+# Localdeki binaries ve bağımlılıkları kopyalama
+COPY apache-hive-3.1.3-bin /veri01/hive-server2/hive
+COPY hadoop-3.3.4 /veri01/hive-server2/hadoop
+
+# Konfigürasyon dosyalarını doğru yerlere koyma ve sembolik link tanımlama
+COPY conf/core-site.xml /veri01/hive-server2/conf/core-site.xml
+COPY conf/hive-site.xml /veri01/hive-server2/conf/hive-site.xml
+
+# Hive ve Hadoop conf dizinlerine linkleme
+RUN ln -sf /veri01/hive-server2/conf/core-site.xml $HADOOP_HOME/etc/hadoop/core-site.xml && \
+    ln -sf /veri01/hive-server2/conf/hive-site.xml $HIVE_HOME/conf/hive-site.xml && \
+    ln -sf /veri01/hive-server2/conf/core-site.xml $HIVE_HOME/conf/core-site.xml
+
+# İzinlerin düzenlenmesi
+RUN chmod -R 777 /veri01/hive-server2 /tmp/hive
+
+# HS2 Thrift ve Web UI Portları
+EXPOSE 10051 10002
+
+# Container başladığında HiveServer2'yi foreground (ön planda) çalıştır
+CMD ["/veri01/hive-server2/hive/bin/hiveserver2", "--hiveconf", "hive.server2.thrift.port=10051"]
+
+
+
+
+# 1. Image'ı build edin
+docker build -t your-registry.domain.com/dataiku/hive-server2:v1.0 .
+
+# 2. Registry'ye login olun ve push edin
+docker login your-registry.domain.com
+docker push your-registry.domain.com/dataiku/hive-server2:v1.0
+
+
+
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hive-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hive-server2
+  namespace: hive-system
+  labels:
+    app: hive-server2
+spec:
+  replicas: 1 # Metastore kilitlenme çakışmalarını önlemek için tek instance olarak başlatılır
+  selector:
+    matchLabels:
+      app: hive-server2
+  template:
+    metadata:
+      labels:
+        app: hive-server2
+    spec:
+      containers:
+      - name: hive-server2
+        image: your-registry.domain.com/dataiku/hive-server2:v1.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 10051
+          name: thrift
+        - containerPort: 10002
+          name: webui
+        resources:
+          requests:
+            memory: "4Gi"
+            cpu: "2"
+          limits:
+            memory: "8Gi"
+            cpu: "4"
+        # Servisin gerçekten ayakta ve dinliyor olduğunu doğrulayan problar
+        readinessProbe:
+          tcpSocket:
+            port: 10051
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: 10051
+          initialDelaySeconds: 60
+          periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hive-server2-service
+  namespace: hive-system
+spec:
+  type: NodePort # Dış ağdan direkt IP:Port erişimi için (İsteğe göre LoadBalancer veya OpenShift Route/Ingress yapılabilir)
+  selector:
+    app: hive-server2
+  ports:
+    - name: thrift
+      port: 10051
+      targetPort: 10051
+      nodePort: 30051 # K8s Node IP'si üzerinden dışarı açılacak sabit port (30000-32767 arası)
+    - name: webui
+      port: 10002
+      targetPort: 10002
+      nodePort: 30002
+
+
+
+
+
+# Manifesti uygulayın
+kubectl apply -f hive-server2-k8s.yaml
+
+# Pod'un durumunu ve loglarını kontrol edin
+kubectl get pods -n hive-system -w
+kubectl logs -f deployment/hive-server2 -n hive-system
+
+# Servis IP ve NodePort bilgilerini kontrol edin
+kubectl get svc -n hive-system
+
+
+
+
+
+$HIVE/bin/beeline -u jdbc:hive2://<K8S_NODE_IP>:30051/default
+
+
+  
