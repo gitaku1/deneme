@@ -60,29 +60,3 @@ spec:
   - name: webui
     port: 10002
     targetPort: 10002
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  kubectl apply -f hs2-k8s.yaml -n <NAMESPACE_ISMINIZ>
-
-
-  kubectl get pods -l app=hiveserver2 -n <NAMESPACE_ISMINIZ>
-
-  kubectl logs -f deployment/hiveserver2-deployment -n <NAMESPACE_ISMINIZ>
-
-  beeline -u "jdbc:hive2://<K8S_NODE_IP>:30051/default"
