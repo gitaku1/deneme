@@ -1,0 +1,57 @@
+import os
+import glob
+import pandas as pd
+
+# Dataiku Veri Dizinini Al
+DIP_HOME = os.environ.get("DIP_HOME", "/opt/dataiku/data") # Varsayılan konumu gerekirse güncelleyin
+ENVS_DIR = os.path.join(DIP_HOME, "code-envs", "python")
+
+PKG1 = "fss3fes"
+PKG2 = "fsspack"
+
+results = []
+
+if os.path.exists(ENVS_DIR):
+    for env_name in os.listdir(ENVS_DIR):
+        env_path = os.path.join(ENVS_DIR, env_name)
+        
+        # Sadece dizinleri ve R olmayan ortamları al
+        if not os.path.isdir(env_path) or env_name.startswith("R-"):
+            continue
+            
+        # site-packages yolunu bul
+        site_packages_pattern = os.path.join(env_path, "lib", "python*", "site-packages")
+        site_packages_dirs = glob.glob(site_packages_pattern)
+        
+        if not site_packages_dirs:
+            continue
+            
+        site_packages = site_packages_dirs[0]
+        
+        # site-packages altındaki tüm klasör ve dist-info/egg-info isimlerini oku
+        installed_items = [item.lower() for item in os.listdir(site_packages)]
+        
+        # Paketlerin varlık kontrolü (örneğin fss3fes veya fss3fes-1.0.dist-info)
+        has_pkg1 = any(PKG1 in item for item in installed_items)
+        has_pkg2 = any(PKG2 in item for item in installed_items)
+        
+        if has_pkg1 and has_pkg2:
+            status = "İkisi de VAR"
+        elif not has_pkg1 and not has_pkg2:
+            status = "İkisi de YOK"
+        elif has_pkg1 and not has_pkg2:
+            status = f"Sadece {PKG1.upper()} var"
+        else:
+            status = f"Sadece {PKG2.upper()} var"
+
+        results.append({
+            "Code Env Name": env_name,
+            "FSS3FES": "VAR" if has_pkg1 else "YOK",
+            "FSSpack": "VAR" if has_pkg2 else "YOK",
+            "Status": status
+        })
+
+df = pd.DataFrame(results)
+
+print(f"=== SİTE-PACKAGES TARAMA SONUÇLARI (Toplam {len(df)} Env) ===\n")
+print(df["Status"].value_counts().to_string())
