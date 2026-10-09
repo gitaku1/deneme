@@ -1,0 +1,92 @@
+import dataiku
+import pandas as pd
+import re
+
+# DSS API istemcisini başlat
+client = dataiku.api_client()
+
+# Aranan paketler (harf büyüklüğü duyarsız kontrol için)
+PKG1 = "fss3fes"
+PKG2 = "fsspack"
+
+results = []
+
+# Tüm code environment'ları listele
+all_envs = client.list_code_envs()
+
+for env_summary in all_envs:
+    env_name = env_summary.get("envName")
+    env_type = env_summary.get("envType")
+    deployment_mode = env_summary.get("deploymentMode")
+    
+    # 1. Sadece Python ortamlarını filtrele (R elenir)
+    if env_type != "PYTHON":
+        continue
+        
+    # 2. Sadece Plugin olmayan kullanıcı/tasarım ortamlarını filtrele
+    # DSS'te plugin olmayan standart ortamların deploymentMode değeri "DESIGN_MANAGED"'dır.
+    # "PLUGIN_MANAGED", "AUTOMATION_MANAGED" veya plugin sahibi olanlar elenir.
+    if deployment_mode != "DESIGN_MANAGED" or env_summary.get("ownerPlugin") is not None:
+        continue
+
+    try:
+        # Ortam detaylarını ve tanımını çek
+        env_obj = client.get_code_env("PYTHON", env_name)
+        definition = env_obj.get_definition()
+        
+        # Python versiyon bilgisi
+        py_interpreter = definition.get("pythonInterpreter", "Bilinmiyor")
+        
+        # Requirements metnini al
+        spec = definition.get("spec", {})
+        reqs_text = spec.get("requirements", "")
+        if isinstance(reqs_text, list):
+            reqs_text = "\n".join(reqs_text)
+            
+        full_spec = str(reqs_text).lower()
+        
+        # Tam kelime eşleşmesi kontrolü (\b sınır karakteri ile)
+        has_pkg1 = bool(re.search(r'\b' + re.escape(PKG1) + r'\b', full_spec, re.IGNORECASE))
+        has_pkg2 = bool(re.search(r'\b' + re.escape(PKG2) + r'\b', full_spec, re.IGNORECASE))
+        
+        # Durum belirleme
+        if has_pkg1 and has_pkg2:
+            status = "İkisi de VAR"
+        elif not has_pkg1 and not has_pkg2:
+            status = "İkisi de YOK"
+        elif has_pkg1 and not has_pkg2:
+            status = "Sadece FSS3FES var"
+        else:
+            status = "Sadece FSSpack var"
+            
+        results.append({
+            "Code Env Name": env_name,
+            "Python Interpreter": py_interpreter,
+            "FSS3FES": "VAR" if has_pkg1 else "YOK",
+            "FSSpack": "VAR" if has_pkg2 else "YOK",
+            "Status": status
+        })
+        
+    except Exception as e:
+        print(f"Hata ({env_name}): {e}")
+
+# Sonuçları DataFrame'e dönüştür
+df = pd.DataFrame(results)
+
+# --- ÖZET VE LİSTELEME ---
+print(f"=== TARAMA SONUÇLARI (Toplam {len(df)} Python Env) ===\n")
+
+print("--- 1. DURUM ÖZETİ SAYILARI ---")
+print(df["Status"].value_counts())
+print("\n" + "="*50 + "\n")
+
+# Durumlara göre gruplayarak yazdır
+for status_type in ["İkisi de YOK", "Sadece FSS3FES var", "Sadece FSSpack var", "İkisi de VAR"]:
+    group = df[df["Status"] == status_type]
+    print(f"### {status_type.upper()} ({len(group)} adet) ###")
+    if not group.empty:
+        for idx, row in group.iterrows():
+            print(f"  - {row['Code Env Name']} (Python: {row['Python Interpreter']})")
+    else:
+        print("  - Yok")
+    print()
