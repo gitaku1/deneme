@@ -1,0 +1,81 @@
+import dataiku
+import pandas as pd
+
+client = dataiku.api_client()
+
+PKG1 = "fss3fes"
+PKG2 = "fsspack"
+
+results = []
+
+all_envs = client.list_code_envs()
+
+for env_summary in all_envs:
+    env_name = env_summary.get("envName", "")
+    deployment_mode = str(env_summary.get("deploymentMode", "")).upper()
+    owner_plugin = env_summary.get("ownerPlugin")
+    
+    # 1. Filtre: Sadece DESIGN_MANAGED ve Plugin/Internal olmayanlar
+    if deployment_mode != "DESIGN_MANAGED" or owner_plugin is not None:
+        continue
+
+    # 2. Filtre: R ortamlarını ele
+    if env_name.startswith("R-") or (env_name.startswith("r") and "-default" in env_name):
+        continue
+
+    try:
+        # Arayüzdeki "Installed Packages" verisini çeken iç API çağrısı
+        endpoint = f"/code-envs/PYTHON/{env_name}/update-installed-packages"
+        response = client._perform_json("POST", endpoint)
+        
+        # Kurulu tüm paketlerin isimlerini küçük harfe çevirerek bir kümeye topla
+        installed_info = response.get("installed", [])
+        installed_pkgs = {pkg.get("name", "").lower() for pkg in installed_info if isinstance(pkg, dict)}
+        
+        has_pkg1 = PKG1 in installed_pkgs
+        has_pkg2 = PKG2 in installed_pkgs
+
+        if has_pkg1 and has_pkg2:
+            status = "İkisi de VAR"
+        elif not has_pkg1 and not has_pkg2:
+            status = "İkisi de YOK"
+        elif has_pkg1 and not has_pkg2:
+            status = f"Sadece {PKG1.upper()} var"
+        else:
+            status = f"Sadece {PKG2.upper()} var"
+
+        results.append({
+            "Code Env Name": env_name,
+            "FSS3FES": "VAR" if has_pkg1 else "YOK",
+            "FSSpack": "VAR" if has_pkg2 else "YOK",
+            "Status": status
+        })
+
+    except Exception as e:
+        results.append({
+            "Code Env Name": env_name,
+            "FSS3FES": "HATA",
+            "FSSpack": "HATA",
+            "Status": f"Sorgulanamadı ({str(e)})"
+        })
+
+# --- SONUÇLARI LİSTELEME ---
+df = pd.DataFrame(results)
+
+print(f"=== TARAMA SONUÇLARI (Toplam {len(df)} Python Env) ===\n")
+
+print("--- 1. DURUM ÖZET SAYILARI ---")
+if "Status" in df.columns and not df.empty:
+    print(df["Status"].value_counts().to_string())
+print("\n" + "="*60 + "\n")
+
+print("--- 2. DETAYLI KATEGORİ LİSTESİ ---")
+for st in ["İkisi de VAR", f"Sadece {PKG1.upper()} var", f"Sadece {PKG2.upper()} var", "İkisi de YOK"]:
+    group = df[df["Status"] == st] if not df.empty else pd.DataFrame()
+    print(f"\n[ {st.upper()} ] -> Toplam {len(group)} adet")
+    print("-" * 50)
+    if not group.empty:
+        for idx, row in group.iterrows():
+            print(f"  • {row['Code Env Name']}")
+    else:
+        print("  (Bu durumda ortam bulunmuyor)")
