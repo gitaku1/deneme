@@ -1,0 +1,101 @@
+import dataiku
+import pandas as pd
+import re
+
+client = dataiku.api_client()
+
+PKG1 = "fss3fes"
+PKG2 = "fsspack"
+
+results = []
+
+all_envs = client.list_code_envs()
+
+for env_summary in all_envs:
+    env_name = env_summary.get("envName", "")
+    deployment_mode = str(env_summary.get("deploymentMode", "")).upper()
+    owner_plugin = env_summary.get("ownerPlugin")
+    
+    # 1. Filtre: Sadece DESIGN_MANAGED ve Plugin sahibi olmayanlar
+    if deployment_mode != "DESIGN_MANAGED" or owner_plugin is not None:
+        continue
+
+    # 2. Filtre: R ortamlarını ele (İsim R- ile başlıyorsa veya R içeriyorsa)
+    # (Örn: R-default, R-vanilla-kubdefault, r432-default)
+    if env_name.startswith("R-") or env_name.startswith("r") and "-default" in env_name:
+        continue
+
+    try:
+        # Ortam detaylarını al (varsayılan olarak PYTHON olarak sorguluyoruz)
+        env_obj = client.get_code_env("PYTHON", env_name)
+        definition = env_obj.get_definition()
+        
+        # Tanım seviyesinde dil kontrolü (R dili ise geç)
+        env_lang = definition.get("desc", {}).get("lang", "").upper()
+        if env_lang == "R":
+            continue
+
+        py_interpreter = definition.get("pythonInterpreter", "Belirtilmemiş")
+        
+        # Paket bağımlılıklarını al (hem requirements hem condaRequirements kontrolü)
+        spec = definition.get("spec", {})
+        reqs_pip = spec.get("requirements", "")
+        reqs_conda = spec.get("condaRequirements", "")
+        
+        if isinstance(reqs_pip, list):
+            reqs_pip = "\n".join(reqs_pip)
+        if isinstance(reqs_conda, list):
+            reqs_conda = "\n".join(reqs_conda)
+            
+        full_spec = (str(reqs_pip) + "\n" + str(reqs_conda)).lower()
+        
+        # Tam kelime esleşmesi kontrolü (\b sınır karakteri)
+        has_pkg1 = bool(re.search(r'\b' + re.escape(PKG1) + r'\b', full_spec, re.IGNORECASE))
+        has_pkg2 = bool(re.search(r'\b' + re.escape(PKG2) + r'\b', full_spec, re.IGNORECASE))
+        
+        if has_pkg1 and has_pkg2:
+            status = "İkisi de VAR"
+        elif not has_pkg1 and not has_pkg2:
+            status = "İkisi de YOK"
+        elif has_pkg1 and not has_pkg2:
+            status = f"Sadece {PKG1.upper()} var"
+        else:
+            status = f"Sadece {PKG2.upper()} var"
+            
+        results.append({
+            "Code Env Name": env_name,
+            "Python Interpreter": py_interpreter,
+            "FSS3FES": "VAR" if has_pkg1 else "YOK",
+            "FSSpack": "VAR" if has_pkg2 else "YOK",
+            "Status": status
+        })
+        
+    except Exception as e:
+        # Hata alan ortamları da görünür kılmak için ekliyoruz
+        results.append({
+            "Code Env Name": env_name,
+            "Python Interpreter": "HATA",
+            "FSS3FES": "BILINMIYOR",
+            "FSSpack": "BILINMIYOR",
+            "Status": f"Okunamadı ({str(e)})"
+        })
+
+# DataFrame Oluşturma
+columns = ["Code Env Name", "Python Interpreter", "FSS3FES", "FSSpack", "Status"]
+df = pd.DataFrame(results, columns=columns)
+
+# --- SONUÇLARI YAZDIR ---
+print(f"=== TARAMA SONUÇLARI (Toplam {len(df)} Bulunan Python Env) ===\n")
+
+print("--- DURUM ÖZETİ SAYILARI ---")
+print(df["Status"].value_counts())
+print("\n" + "="*50 + "\n")
+
+# Gruplanmış Liste
+statuses = df["Status"].unique()
+for st in statuses:
+    group = df[df["Status"] == st]
+    print(f"### {st.upper()} ({len(group)} adet) ###")
+    for idx, row in group.iterrows():
+        print(f"  - {row['Code Env Name']} (Interpreter: {row['Python Interpreter']})")
+    print()
