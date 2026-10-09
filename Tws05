@@ -1,0 +1,110 @@
+import dataiku
+import pandas as pd
+import re
+
+client = dataiku.api_client()
+
+# Aranan paket isimleri
+PKG1 = "fss3fes"
+PKG2 = "fsspack"
+
+results = []
+
+all_envs = client.list_code_envs()
+
+for env_summary in all_envs:
+    env_name = env_summary.get("envName", "")
+    deployment_mode = str(env_summary.get("deploymentMode", "")).upper()
+    owner_plugin = env_summary.get("ownerPlugin")
+    
+    # 1. Filtre: Sadece DESIGN_MANAGED ve Plugin/Internal olmayanlar
+    if deployment_mode != "DESIGN_MANAGED" or owner_plugin is not None:
+        continue
+
+    # 2. Filtre: R ortamlarını ele
+    if env_name.startswith("R-") or (env_name.startswith("r") and "-default" in env_name):
+        continue
+
+    try:
+        env_obj = client.get_code_env("PYTHON", env_name)
+        definition = env_obj.get_definition()
+        
+        # Dil kontrolü (R ise atla)
+        if definition.get("desc", {}).get("lang", "").upper() == "R":
+            continue
+
+        py_interpreter = definition.get("pythonInterpreter", "Belirtilmemiş")
+        spec = definition.get("spec", {})
+        
+        # Ortamdaki tüm tanım alanlarını (pip, conda, ek paketler) birleştir
+        reqs_pip = spec.get("requirements", "")
+        reqs_conda = spec.get("condaRequirements", "")
+        
+        if isinstance(reqs_pip, list):
+            reqs_pip = "\n".join(reqs_pip)
+        if isinstance(reqs_conda, list):
+            reqs_conda = "\n".join(reqs_conda)
+            
+        full_spec_text = (str(reqs_pip) + "\n" + str(reqs_conda)).lower()
+        
+        # Kelime sınırları ile paket kontrolü (örn. fss3fes==1.2.0 veya FSS3FES'i yakalar)
+        has_pkg1 = bool(re.search(r'(?::-e\s+)?\b' + re.escape(PKG1) + r'\b', full_spec_text, re.IGNORECASE))
+        has_pkg2 = bool(re.search(r'(?::-e\s+)?\b' + re.escape(PKG2) + r'\b', full_spec_text, re.IGNORECASE))
+
+        if has_pkg1 and has_pkg2:
+            status = "İkisi de VAR"
+        elif not has_pkg1 and not has_pkg2:
+            status = "İkisi de YOK"
+        elif has_pkg1 and not has_pkg2:
+            status = "Sadece FSS3FES var"
+        else:
+            status = "Sadece FSSpack var"
+
+        results.append({
+            "Code Env Name": env_name,
+            "Python Interpreter": py_interpreter,
+            "FSS3FES": "VAR" if has_pkg1 else "YOK",
+            "FSSpack": "VAR" if has_pkg2 else "YOK",
+            "Status": status
+        })
+
+    except Exception as e:
+        results.append({
+            "Code Env Name": env_name,
+            "Python Interpreter": "Bilinmiyor",
+            "FSS3FES": "HATA",
+            "FSSpack": "HATA",
+            "Status": f"Okunamadı ({str(e)})"
+        })
+
+# --- SONUÇLARI DÜZGÜN BİR LİSTE OLARAK BASTIRMA ---
+df = pd.DataFrame(results, columns=["Code Env Name", "Python Interpreter", "FSS3FES", "FSSpack", "Status"])
+
+print(f"=== PYTHON CODE ENVIRONMENT TARAMA SONUÇLARI (Toplam {len(df)} Env) ===\n")
+
+# 1. Özet Tablo
+print("--- 1. DURUM SAYILARI ÖZETİ ---")
+print(df["Status"].value_counts().to_string())
+print("\n" + "="*60 + "\n")
+
+# 2. Kategorilere Göre Net Liste
+print("--- 2. ORTAM BAZLI DETAYLI LİSTE ---")
+
+status_order = ["İkisi de VAR", "Sadece FSS3FES var", "Sadece FSSpack var", "İkisi de YOK"]
+for st in status_order:
+    group = df[df["Status"] == st]
+    print(f"\n[ {st.upper()} ] -> Toplam {len(group)} adet")
+    print("-" * 50)
+    if not group.empty:
+        for idx, row in group.iterrows():
+            print(f"  • {row['Code Env Name']}  (Python: {row['Python Interpreter']})")
+    else:
+        print("  (Bu durumda ortam bulunmuyor)")
+
+# Hata alanlar varsa göster
+errors = df[df["Status"].str.startswith("Okunamadı")]
+if not errors.empty:
+    print(f"\n[ HATA ALAN ORTAMLAR ] -> Toplam {len(errors)} adet")
+    print("-" * 50)
+    for idx, row in errors.iterrows():
+        print(f"  • {row['Code Env Name']} - Hata: {row['Status']}")
