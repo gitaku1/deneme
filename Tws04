@@ -1,0 +1,124 @@
+import dataiku
+import pandas as pd
+
+client = dataiku.api_client()
+
+# Aranan paket isimleri (harf büyüklüğü duyarsız kontrol edilecek)
+PKG1 = "fss3fes"
+PKG2 = "fsspack"
+
+results = []
+
+all_envs = client.list_code_envs()
+
+for env_summary in all_envs:
+    env_name = env_summary.get("envName", "")
+    deployment_mode = str(env_summary.get("deploymentMode", "")).upper()
+    owner_plugin = env_summary.get("ownerPlugin")
+    
+    # 1. Filtre: Sadece DESIGN_MANAGED ve Plugin olmayanlar
+    if deployment_mode != "DESIGN_MANAGED" or owner_plugin is not None:
+        continue
+
+    # 2. Filtre: R ortamlarını ele
+    if env_name.startswith("R-") or (env_name.startswith("r") and "-default" in env_name):
+        continue
+
+    try:
+        env_obj = client.get_code_env("PYTHON", env_name)
+        definition = env_obj.get_definition()
+        
+        # Tanım seviyesinde R dili kontrolü
+        if definition.get("desc", {}).get("lang", "").upper() == "R":
+            continue
+
+        py_interpreter = definition.get("pythonInterpreter", "Belirtilmemiş")
+
+        # --- KRİTİK NOKTA: GERÇEKTEN KURULU PAKETLERİ SORGULA ---
+        # Arayüzdeki metin dosyasına değil, ortamın içine kurulan paketlere bakar
+        installed_data = env_obj.get_installed_packages()
+        
+        # Dönüş yapısına göre paket isimlerini topla
+        installed_pkgs = set()
+        
+        # get_installed_packages() genelde 'raw' veya 'packages' key'i altında liste döner
+        if isinstance(installed_data, dict):
+            pkg_list = installed_data.get("packages", installed_data.get("raw", []))
+        elif isinstance(installed_data, list):
+            pkg_list = installed_data
+        else:
+            pkg_list = []
+
+        for p in pkg_list:
+            if isinstance(p, dict):
+                p_name = p.get("name", "")
+            elif isinstance(p, str):
+                # "package_name==1.0.0" formatından paket adını ayıkla
+                p_name = p.split("==")[0].split("=")[0].split(">=")[0].strip()
+            else:
+                p_name = ""
+            
+            if p_name:
+                installed_pkgs.add(p_name.lower())
+
+        # Paket varlık kontrolleri
+        has_pkg1 = PKG1 in installed_pkgs
+        has_pkg2 = PKG2 in installed_pkgs
+
+        if has_pkg1 and has_pkg2:
+            status = "İkisi de VAR"
+        elif not has_pkg1 and not has_pkg2:
+            status = "İkisi de YOK"
+        elif has_pkg1 and not has_pkg2:
+            status = f"Sadece {PKG1.upper()} var"
+        else:
+            status = f"Sadece {PKG2.upper()} var"
+
+        results.append({
+            "Code Env Name": env_name,
+            "Python Interpreter": py_interpreter,
+            "FSS3FES": "VAR" if has_pkg1 else "YOK",
+            "FSSpack": "VAR" if has_pkg2 else "YOK",
+            "Status": status
+        })
+
+    except Exception as e:
+        results.append({
+            "Code Env Name": env_name,
+            "Python Interpreter": "Bilinmiyor",
+            "FSS3FES": "HATA",
+            "FSSpack": "HATA",
+            "Status": f"Sorgulanamadı ({str(e)})"
+        })
+
+# --- SONUÇLARI DÜZGÜN BİR LİSTE OLARAK BASTIRMA ---
+df = pd.DataFrame(results, columns=["Code Env Name", "Python Interpreter", "FSS3FES", "FSSpack", "Status"])
+
+print(f"=== PYTHON CODE ENVIRONMENT TARAMA SONUÇLARI (Toplam {len(df)} Env) ===\n")
+
+# 1. Özet Tablo
+print("--- 1. DURUM SAYILARI ÖZETİ ---")
+print(df["Status"].value_counts().to_string())
+print("\n" + "="*60 + "\n")
+
+# 2. Kategorilere Göre Net Liste
+print("--- 2. ORTAM BAZLI DETAYLI LİSTE ---")
+
+status_order = ["İkisi de VAR", "Sadece FSS3FES var", "Sadece FSSpack var", "İkisi de YOK"]
+for st in status_order:
+    group = df[df["Status"] == st]
+    print(f"\n[ {st.upper()} ] -> Toplam {len(group)} adet")
+    print("-" * 50)
+    if not group.empty:
+        for idx, row in group.iterrows():
+            print(f"  • {row['Code Env Name']}  (Python: {row['Python Interpreter']})")
+    else:
+        print("  (Bu durumda ortam bulunmuyor)")
+
+# Sorgulanamayan/Hata alan ortam varsa en alta ekle
+errors = df[df["Status"].str.startswith("Sorgulanamadı")]
+if not errors.empty:
+    print(f"\n[ SORGULANAMAYAN / HATA ALAN ORTAMLAR ] -> Toplam {len(errors)} adet")
+    print("-" * 50)
+    for idx, row in errors.iterrows():
+        print(f"  • {row['Code Env Name']} - Hata: {row['Status']}")
