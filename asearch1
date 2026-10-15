@@ -1,0 +1,494 @@
+import dataiku
+from dataikuapi import DSSClient
+import json
+
+def search_term_in_dataiku(search_term):
+    # Dataiku API client'ını başlat (DSS içinde çalışırken otomatik kimlik doğrulama yapar)
+    client = dataiku.api_client()
+    
+    # Kullanıcının erişebildiği tüm projeleri al
+    projects = client.list_projects()
+    print(f"Toplam {len(projects)} proje taranacak. Aranan terim: '{search_term}'\n" + "-"*50)
+    
+    results = []
+    
+    for p in projects:
+        project_key = p['projectKey']
+        project_name = p.get('name', project_key)
+        try:
+            project = client.get_project(project_key)
+            
+            # 1. Projedeki Recipe'leri Tara
+            recipes = project.list_recipes()
+            for recipe in recipes:
+                recipe_name = recipe['name']
+                recipe_type = recipe['type']
+                
+                # Recipe tanımını ve kodunu/parametrelerini al
+                recipe_obj = project.get_recipe(recipe_name)
+                recipe_def = recipe_obj.get_definition()
+                
+                # Tanımı JSON string'e çevirerek tüm alanlarda (kod, SQL sorgusu, parametreler) arama yapalım
+                def_str = json.dumps(recipe_def, ensure_ascii=False)
+                
+                if search_term.lower() in def_str.lower():
+                    results.append({
+                        "Project Key": project_key,
+                        "Project Name": project_name,
+                        "Component Type": "Recipe",
+                        "Component Name": recipe_name,
+                        "Detail": f"Tür: {recipe_type}"
+                    })
+            
+            # 2. Projedeki Notebook'ları Tara (Jupyter / Code Notebooks)
+            try:
+                notebooks = project.list_jupyter_notebooks()
+                for nb in notebooks:
+                    nb_name = nb.get('name', nb.get('smartName', 'Unknown'))
+                    nb_id = nb.get('id')
+                    
+                    # Notebook içeriğini okumaya çalış
+                    notebook_obj = project.get_jupyter_notebook(nb_id)
+                    nb_content = notebook_obj.get_payload()
+                    
+                    if search_term.lower() in nb_content.lower():
+                        results.append({
+                            "Project Key": project_key,
+                            "Project Name": project_name,
+                            "Component Type": "Notebook",
+                            "Component Name": nb_name,
+                            "Detail": "Jupyter Notebook içeriği"
+                        })
+            except Exception as nb_err:
+                # Notebook bulunmayan veya yetki kısıtı olan projelerde hata almamak için
+                pass
+                
+        except Exception as e:
+            print(f"Hata oluştu ({project_key}): {str(e)}")
+            
+    # Sonuçları raporla
+    print(f"\nBulgu Sayısı: {len(results)}\n" + "="*50)
+    for r in results:
+        print(f"Proje: {r['Project Name']} ({r['Project Key']})")
+        print(f"  └─ Bileşen: {r['Component Type']} -> {r['Component Name']} ({r['Detail']})")
+        print("-" * 50)
+
+# Kullanım örneği:
+if __name__ == "__main__":
+    target_term = "ARANACAK_TABLO_VEYA_TERIM"
+    search_term_in_dataiku(target_term)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ============================================================
+# DATAIKU DSS 14.7.2 - GLOBAL KOD VE SORGU ARAMA
+# Python Notebook icinde calistirilmak uzere tasarlanmistir.
+# Salt okunur: DSS nesnelerini degistirmez.
+# ============================================================
+
+import dataiku
+import pandas as pd
+import json
+import re
+import traceback
+from datetime import datetime
+
+# ------------------------------------------------------------
+# 1. ARAMA AYARLARI
+# ------------------------------------------------------------
+
+SEARCH_TERM = "CUSTOMER_ID"   # Aranacak terimi degistir
+CASE_SENSITIVE = False        # Buyuk/kucuk harf ayrimi
+REGEX_MODE = False            # True: SEARCH_TERM regex olarak yorumlanir
+CONTEXT_CHARS = 180           # Eslesen satir etrafindaki metin
+
+# True: nesne adlari ve konfigurasyonlar da taransin
+SEARCH_METADATA = True
+
+# ------------------------------------------------------------
+# 2. API BAGLANTISI
+# ------------------------------------------------------------
+
+client = dataiku.api_client()
+
+try:
+    search_pattern = re.compile(
+        SEARCH_TERM if REGEX_MODE else re.escape(SEARCH_TERM),
+        0 if CASE_SENSITIVE else re.IGNORECASE
+    )
+except re.error as exc:
+    raise ValueError("Gecersiz arama deseni: {}".format(exc))
+
+results = []
+errors = []
+
+stats = {
+    "projects_seen": 0,
+    "recipes_seen": 0,
+    "notebooks_seen": 0,
+    "objects_scanned": 0,
+    "matches": 0
+}
+
+
+# ------------------------------------------------------------
+# 3. YARDIMCI FONKSIYONLAR
+# ------------------------------------------------------------
+
+def add_error(project_key, object_name, object_type, exc):
+    errors.append({
+        "project_key": project_key,
+        "object_name": object_name,
+        "object_type": object_type,
+        "error": str(exc)[:500]
+    })
+
+
+def add_matches(project_key, project_name, object_name,
+                object_type, source_name, content):
+    """
+    Metni satir satir tarar.
+    Her eslesen satir icin ayri sonuc olusturur.
+    """
+
+    if not isinstance(content, str) or not content:
+        return
+
+    lines = content.splitlines()
+
+    for line_number, line in enumerate(lines, start=1):
+        found = list(search_pattern.finditer(line))
+
+        if not found:
+            continue
+
+        for match in found:
+            start = max(0, match.start() - CONTEXT_CHARS)
+            end = min(len(line), match.end() + CONTEXT_CHARS)
+
+            results.append({
+                "project_key": project_key,
+                "project_name": project_name,
+                "object_name": object_name,
+                "object_type": object_type,
+                "source": source_name,
+                "line_number": line_number,
+                "matched_text": match.group(0),
+                "line_text": line.strip(),
+                "context": line[start:end].strip()
+            })
+
+
+def scan_value(project_key, project_name, object_name,
+               object_type, source_name, value):
+    """
+    Kod, SQL, notebook icerigi ve JSON yapilarini tarar.
+    Kaynak adini korur; satir numaralari metin kaynagina aittir.
+    """
+
+    if isinstance(value, str):
+        add_matches(
+            project_key, project_name, object_name,
+            object_type, source_name, value
+        )
+
+    elif isinstance(value, dict):
+        for key, child in value.items():
+            scan_value(
+                project_key, project_name, object_name,
+                object_type,
+                "{}.{}".format(source_name, key),
+                child
+            )
+
+    elif isinstance(value, (list, tuple)):
+        # Notebook kaynak kodlari bazen satir listesi olarak gelir.
+        if all(isinstance(item, str) for item in value):
+            add_matches(
+                project_key, project_name, object_name,
+                object_type, source_name, "\n".join(value)
+            )
+        else:
+            for index, child in enumerate(value):
+                scan_value(
+                    project_key, project_name, object_name,
+                    object_type,
+                    "{}[{}]".format(source_name, index),
+                    child
+                )
+
+
+def scan_json(project_key, project_name, object_name,
+              object_type, source_name, value):
+    """JSON yapilarini okunabilir metne cevirerek tarar."""
+
+    try:
+        serialized = json.dumps(
+            value, ensure_ascii=False, indent=2, default=str
+        )
+        add_matches(
+            project_key, project_name, object_name,
+            object_type, source_name, serialized
+        )
+    except Exception as exc:
+        add_error(project_key, object_name, object_type, exc)
+
+
+def safe_list(method, *args, **kwargs):
+    """Desteklenmeyen veya yetki gerektiren API cagrisini yakalar."""
+    try:
+        return method(*args, **kwargs), None
+    except Exception as exc:
+        return [], exc
+
+
+# ------------------------------------------------------------
+# 4. ERISILEBILEN PROJELERI KESFET
+# ------------------------------------------------------------
+
+project_keys = client.list_project_keys()
+print("Erisilebilen proje sayisi:", len(project_keys))
+print("Aranan terim:", SEARCH_TERM)
+
+for project_key in project_keys:
+    stats["projects_seen"] += 1
+
+    try:
+        project = client.get_project(project_key)
+
+        try:
+            summary = project.get_summary()
+            project_name = (
+                summary.get("name")
+                or summary.get("projectName")
+                or project_key
+            )
+        except Exception:
+            project_name = project_key
+
+    except Exception as exc:
+        add_error(project_key, "", "project", exc)
+        continue
+
+    # --------------------------------------------------------
+    # 5. RECIPE'LERI TARA
+    # --------------------------------------------------------
+
+    recipe_items, exc = safe_list(project.list_recipes)
+
+    if exc:
+        add_error(project_key, "", "recipe_list", exc)
+
+    for recipe_item in recipe_items:
+        recipe_name = getattr(recipe_item, "name", str(recipe_item))
+        recipe_type = getattr(recipe_item, "type", "unknown")
+        stats["recipes_seen"] += 1
+        stats["objects_scanned"] += 1
+
+        # Nesne adi ve recipe turu
+        if SEARCH_METADATA:
+            add_matches(
+                project_key, project_name, recipe_name,
+                "recipe", "recipe_name", recipe_name
+            )
+            add_matches(
+                project_key, project_name, recipe_name,
+                "recipe", "recipe_type", str(recipe_type)
+            )
+
+        try:
+            recipe = project.get_recipe(recipe_name)
+            settings = recipe.get_settings()
+
+            # Kod recipe'lerinde str_payload genellikle kaynak kodudur.
+            # SQL, Python, PySpark ve desteklenen diger kod recipe'leri
+            # bu yolla taranabilir.
+            payload = settings.str_payload
+
+            if isinstance(payload, str):
+                add_matches(
+                    project_key, project_name, recipe_name,
+                    recipe_type, "recipe_payload", payload
+                )
+
+            # Kod disindaki recipe'lerin yapilandirmalari:
+            # Prepare adimlari, join ayarlari ve benzeri JSON icerikler.
+            if SEARCH_METADATA:
+                try:
+                    raw_params = settings.raw_params
+                    scan_json(
+                        project_key, project_name, recipe_name,
+                        recipe_type, "recipe_parameters", raw_params
+                    )
+                except Exception as exc:
+                    add_error(
+                        project_key, recipe_name,
+                        "recipe_parameters", exc
+                    )
+
+                try:
+                    definition = settings.get_recipe_raw_definition()
+                    scan_json(
+                        project_key, project_name, recipe_name,
+                        recipe_type, "recipe_definition", definition
+                    )
+                except Exception:
+                    # Bazi DSS nesnelerinde tanim okunamayabilir.
+                    pass
+
+        except Exception as exc:
+            add_error(
+                project_key, recipe_name,
+                "recipe:" + str(recipe_type), exc
+            )
+
+    # --------------------------------------------------------
+    # 6. PYTHON / R / SCALA NOTEBOOK'LARI TARA
+    # --------------------------------------------------------
+
+    notebooks, exc = safe_list(
+        project.list_jupyter_notebooks, as_type="objects"
+    )
+
+    # DSS alt surumlerinde parametre degeri farkli olabilir.
+    if exc:
+        notebooks, exc = safe_list(project.list_jupyter_notebooks)
+
+    if exc:
+        add_error(project_key, "", "jupyter_notebook_list", exc)
+
+    for notebook_item in notebooks:
+        notebook_name = (
+            getattr(notebook_item, "notebook_name", None)
+            or getattr(notebook_item, "name", None)
+            or str(notebook_item)
+        )
+        stats["notebooks_seen"] += 1
+        stats["objects_scanned"] += 1
+
+        if SEARCH_METADATA:
+            add_matches(
+                project_key, project_name, notebook_name,
+                "jupyter_notebook", "notebook_name", notebook_name
+            )
+
+        try:
+            notebook = project.get_jupyter_notebook(notebook_name)
+            content = notebook.get_content()
+
+            scan_value(
+                project_key, project_name, notebook_name,
+                "jupyter_notebook", "notebook_content", content
+            )
+
+        except Exception as exc:
+            add_error(
+                project_key, notebook_name,
+                "jupyter_notebook", exc
+            )
+
+    # --------------------------------------------------------
+    # 7. SQL NOTEBOOK'LARI TARA
+    # --------------------------------------------------------
+
+    sql_notebooks, exc = safe_list(
+        project.list_sql_notebooks, as_type="objects"
+    )
+
+    if exc:
+        # Parametresiz cagriyi de dene.
+        sql_notebooks, exc = safe_list(project.list_sql_notebooks)
+
+    if exc:
+        add_error(project_key, "", "sql_notebook_list", exc)
+
+    for notebook_item in sql_notebooks:
+        notebook_name = (
+            getattr(notebook_item, "name", None)
+            or getattr(notebook_item, "notebook_id", None)
+            or getattr(notebook_item, "id", None)
+            or str(notebook_item)
+        )
+        stats["objects_scanned"] += 1
+
+        if SEARCH_METADATA:
+            add_matches(
+                project_key, project_name, str(notebook_name),
+                "sql_notebook", "notebook_name", str(notebook_name)
+            )
+
+        try:
+            notebook_id = (
+                getattr(notebook_item, "id", None)
+                or getattr(notebook_item, "notebook_id", None)
+                or notebook_name
+            )
+
+            notebook = project.get_sql_notebook(notebook_id)
+            content = notebook.get_content()
+
+            scan_value(
+                project_key, project_name, str(notebook_name),
+                "sql_notebook", "sql_notebook_content", content
+            )
+
+        except Exception as exc:
+            add_error(
+                project_key, str(notebook_name),
+                "sql_notebook", exc
+            )
+
+
+# ------------------------------------------------------------
+# 8. SONUCLARI DATAFRAME OLARAK GOSTER
+# ------------------------------------------------------------
+
+result_columns = [
+    "project_key", "project_name", "object_name",
+    "object_type", "source", "line_number",
+    "matched_text", "line_text", "context"
+]
+
+df_results = pd.DataFrame(results, columns=result_columns)
+df_errors = pd.DataFrame(
+    errors,
+    columns=["project_key", "object_name", "object_type", "error"]
+)
+
+if not df_results.empty:
+    df_results = df_results.drop_duplicates()
+    df_results = df_results.sort_values(
+        ["project_key", "object_type", "object_name", "line_number"]
+    ).reset_index(drop=True)
+
+stats["matches"] = len(df_results)
+
+print("\n========== ARAMA OZETI ==========")
+print("Taranan projeler       :", stats["projects_seen"])
+print("Bulunan recipe sayisi  :", stats["recipes_seen"])
+print("Bulunan notebook sayisi:", stats["notebooks_seen"])
+print("Incelenen nesne sayisi :", stats["objects_scanned"])
+print("Eslesen sonuc satiri   :", stats["matches"])
+print("Erisim/API hatalari    :", len(df_errors))
+
+print("\n========== ESLESMELER ==========")
+display(df_results)
+
+print("\n========== TARANAMAYAN NESNELER / HATALAR ==========")
+display(df_errors)
+
+
+
+
