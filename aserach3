@@ -1,0 +1,363 @@
+
+<div class="filter-panel">
+  <div class="filter-grid">
+    <div class="filter-item">
+      <label for="projectFilter">Proje</label>
+      <select id="projectFilter">
+        <option value="">Tüm projeler</option>
+      </select>
+    </div>
+
+    <div class="filter-item">
+      <label for="typeFilter">Nesne türü</label>
+      <select id="typeFilter">
+        <option value="">Tüm türler</option>
+      </select>
+    </div>
+
+    <div class="filter-item">
+      <label for="lineFilter">Satır numarası / aralığı</label>
+      <input id="lineFilter" type="text" placeholder="Örn. 25 veya 25-80">
+    </div>
+
+    <div class="filter-item">
+      <label for="limitFilter">Nesne başına eşleşme</label>
+      <select id="limitFilter">
+        <option value="0">Tümü</option>
+        <option value="1">En fazla 1</option>
+        <option value="3">En fazla 3</option>
+        <option value="5" selected>En fazla 5</option>
+        <option value="10">En fazla 10</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="filter-actions">
+    <label class="filter-check">
+      <input type="checkbox" id="dedupeFilter" checked>
+      Tekrarlanan kayıtları gizle
+    </label>
+
+    <button type="button" id="resetFilters">Filtreleri temizle</button>
+
+    <span id="filterSummary">Filtre bekleniyor</span>
+  </div>
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+.filter-panel {
+  background: #ffffff;
+  border: 1px solid #dfe5ee;
+  border-radius: 12px;
+  padding: 16px;
+  margin: 16px 0;
+}
+
+.filter-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.filter-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.filter-item label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #526078;
+}
+
+.filter-item select,
+.filter-item input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid #d5dce7;
+  border-radius: 7px;
+  background: #fff;
+  color: #182338;
+}
+
+.filter-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 14px;
+  font-size: 13px;
+}
+
+.filter-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+#resetFilters {
+  padding: 8px 12px;
+  border: 1px solid #d5dce7;
+  border-radius: 7px;
+  background: #f7f9fc;
+  cursor: pointer;
+}
+
+#filterSummary {
+  color: #526078;
+  margin-left: auto;
+}
+
+@media (max-width: 900px) {
+  .filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .filter-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+let allSearchResults = [];
+
+function populateFilter(id, values, firstLabel) {
+    const select = document.getElementById(id);
+    const previousValue = select.value;
+
+    select.innerHTML = "";
+
+    const first = document.createElement("option");
+    first.value = "";
+    first.textContent = firstLabel;
+    select.appendChild(first);
+
+    [...new Set(values.filter(v => v !== undefined && v !== null && String(v) !== ""))]
+        .sort((a, b) => String(a).localeCompare(String(b)))
+        .forEach(value => {
+            const option = document.createElement("option");
+            option.value = String(value);
+            option.textContent = String(value);
+            select.appendChild(option);
+        });
+
+    if ([...select.options].some(o => o.value === previousValue)) {
+        select.value = previousValue;
+    }
+}
+
+function getLineRange() {
+    const value = document.getElementById("lineFilter").value.trim();
+
+    if (!value) return null;
+
+    const range = value.match(/^(\d+)\s*-\s*(\d+)$/);
+    if (range) {
+        return {
+            min: Math.min(Number(range[1]), Number(range[2])),
+            max: Math.max(Number(range[1]), Number(range[2]))
+        };
+    }
+
+    if (/^\d+$/.test(value)) {
+        return { min: Number(value), max: Number(value) };
+    }
+
+    return "invalid";
+}
+
+function applyResultFilters() {
+    const project = document.getElementById("projectFilter").value;
+    const type = document.getElementById("typeFilter").value;
+    const lineRange = getLineRange();
+    const limit = Number(document.getElementById("limitFilter").value);
+    const dedupe = document.getElementById("dedupeFilter").checked;
+
+    if (lineRange === "invalid") {
+        document.getElementById("filterSummary").textContent =
+            "Satır için 25 veya 25-80 biçimini kullanın.";
+        return;
+    }
+
+    let rows = allSearchResults.filter(row => {
+        if (project && String(row.project) !== project) return false;
+        if (type && String(row.type) !== type) return false;
+
+        if (lineRange) {
+            const line = Number(row.line);
+            if (!Number.isFinite(line) ||
+                line < lineRange.min || line > lineRange.max) {
+                return false;
+            }
+        }
+
+        return true;
+    });
+
+    const beforeDedupe = rows.length;
+
+    if (dedupe) {
+        const seen = new Set();
+
+        rows = rows.filter(row => {
+            const key = JSON.stringify([
+                row.project, row.object, row.type,
+                row.source, row.line, row.match
+            ]);
+
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+    }
+
+    const beforeLimit = rows.length;
+
+    if (limit > 0) {
+        const counts = new Map();
+
+        rows = rows.filter(row => {
+            const key = JSON.stringify([
+                row.project, row.object, row.type
+            ]);
+
+            const count = counts.get(key) || 0;
+            if (count >= limit) return false;
+
+            counts.set(key, count + 1);
+            return true;
+        });
+    }
+
+    renderTable("resultsTable", rows, [
+        ["project", "Project"],
+        ["object", "Object"],
+        ["type", "Type"],
+        ["source", "Source"],
+        ["line", "Line"],
+        ["match", "Match"],
+        ["context", "Context"]
+    ]);
+
+    const hiddenDuplicates = beforeDedupe - beforeLimit;
+    const hiddenByLimit = beforeLimit - rows.length;
+
+    document.getElementById("filterSummary").textContent =
+        rows.length + " sonuç gösteriliyor · " +
+        hiddenDuplicates + " tekrar gizlendi · " +
+        hiddenByLimit + " limit nedeniyle gizlendi";
+}
+
+function setupResultFilters(results) {
+    allSearchResults = Array.isArray(results) ? results : [];
+
+    populateFilter(
+        "projectFilter",
+        allSearchResults.map(row => row.project),
+        "Tüm projeler"
+    );
+
+    populateFilter(
+        "typeFilter",
+        allSearchResults.map(row => row.type),
+        "Tüm türler"
+    );
+
+    applyResultFilters();
+}
+
+[
+    "projectFilter",
+    "typeFilter",
+    "lineFilter",
+    "limitFilter",
+    "dedupeFilter"
+].forEach(id => {
+    document.getElementById(id).addEventListener("input", applyResultFilters);
+    document.getElementById(id).addEventListener("change", applyResultFilters);
+});
+
+document.getElementById("resetFilters").addEventListener("click", () => {
+    document.getElementById("projectFilter").value = "";
+    document.getElementById("typeFilter").value = "";
+    document.getElementById("lineFilter").value = "";
+    document.getElementById("limitFilter").value = "5";
+    document.getElementById("dedupeFilter").checked = true;
+
+    applyResultFilters();
+});
+
+
+
+
+
+
+
+
+
+
+
+
+renderTable("resultsTable", data.results, ...);
+
+
+
+setupResultFilters(data.results);
