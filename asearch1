@@ -1,11 +1,726 @@
 
-# Recipe parametre hatalarini ayrintili incele
+# ================================================================
+# DATAIKU DSS 14.7.2 - GLOBAL CODE SEARCH
+# Amac:
+#   - Erisilebilen tum projelerde recipe iceriklerini taramak
+#   - Python / R / Scala notebook kodlarini taramak
+#   - SQL notebook sorgularini taramak
+#   - Eslesmeleri okunabilir tablolarda gostermek
+#   - Taranamayan nesnelerin nedenlerini raporlamak
+#
+# Salt okunur: DSS nesnelerini degistirmez.
+# ================================================================
 
-mask = df_errors["object_type"].astype(str).eq("recipe_parameters")
+import dataiku
+import pandas as pd
+import re
+import json
+import os
+import html
+import traceback
+from datetime import datetime
+from IPython.display import display, HTML
 
-display(
-    df_errors.loc[
-        mask,
-        ["project_key", "object_name", "object_type", "error"]
-    ].head(10).to_string(index=False)
+# ================================================================
+# 1. KULLANICI AYARLARI
+# ================================================================
+
+SEARCH_TERM = "v01paketleri_list"
+
+CASE_SENSITIVE = False
+REGEX_MODE = False
+
+# Eslesen kod satirinin etrafinda gosterilecek karakter sayisi
+CONTEXT_CHARS = 220
+
+# Nesne isimlerini de ara
+SEARCH_OBJECT_NAMES = True
+
+# Arama sonuclarini ve hata raporunu CSV olarak kaydet
+EXPORT_CSV = True
+EXPORT_DIR = "/tmp"
+
+# ================================================================
+# 2. ARAMA HAZIRLIGI
+# ================================================================
+
+if not SEARCH_TERM:
+    raise ValueError("SEARCH_TERM bos olamaz.")
+
+flags = 0 if CASE_SENSITIVE else re.IGNORECASE
+
+try:
+    PATTERN = re.compile(
+        SEARCH_TERM if REGEX_MODE else re.escape(SEARCH_TERM),
+        flags
+    )
+except re.error as exc:
+    raise ValueError("Arama deseni gecersiz: {}".format(exc))
+
+client = dataiku.api_client()
+
+matches = []
+errors = []
+project_reports = []
+
+scan_started = datetime.now()
+
+def record_error(project_key, project_name, object_name,
+                 object_type, stage, exc):
+    """Hatayi kaynagi ve aciklamasiyla kaydeder."""
+
+    message = "{}: {}".format(type(exc).__name__, str(exc))
+
+    lower_message = message.lower()
+
+    if "403" in lower_message or "forbidden" in lower_message:
+        category = "Yetki / erisim engeli"
+        suggestion = "Kullanici ve nesne erisim yetkilerini kontrol edin."
+    elif "401" in lower_message or "unauthorized" in lower_message:
+        category = "Kimlik dogrulama"
+        suggestion = "DSS oturumunu ve kimlik dogrulamayi kontrol edin."
+    elif "404" in lower_message or "not found" in lower_message:
+        category = "Nesne bulunamadi"
+        suggestion = "Nesne kimligini ve silinme/yeniden adlandirilma durumunu kontrol edin."
+    elif isinstance(exc, (AttributeError, TypeError)):
+        category = "API / nesne uyumsuzlugu"
+        suggestion = "DSS 14.7.2 API metodunu ve donen nesne tipini kontrol edin."
+    elif isinstance(exc, KeyError):
+        category = "Eksik alan / anahtar"
+        suggestion = "Ilgili nesnenin veri yapisini ve beklenen alanlarini kontrol edin."
+    elif "timeout" in lower_message or "timed out" in lower_message:
+        category = "Zaman asimi"
+        suggestion = "DSS yanitini ve ag erisimini kontrol edin."
+    elif "connection" in lower_message:
+        category = "Baglanti"
+        suggestion = "DSS baglantisini ve servis durumunu kontrol edin."
+    else:
+        category = "Diger hata"
+        suggestion = "Gercek hata mesajini ve hata asamasini inceleyin."
+
+    errors.append({
+        "project_key": project_key,
+        "project_name": project_name,
+        "object_name": object_name,
+        "object_type": object_type,
+        "stage": stage,
+        "error_category": category,
+        "error": message,
+        "suggestion": suggestion
+    })
+
+
+def add_text_matches(project_key, project_name, object_name,
+                     object_type, source, content):
+    """Metin icerisindeki eslesmeleri satir bazinda kaydeder."""
+
+    if content is None:
+        return 0
+
+    if not isinstance(content, str):
+        content = str(content)
+
+    count = 0
+
+    for line_number, line in enumerate(content.splitlines(), start=1):
+        found = list(PATTERN.finditer(line))
+
+        for match in found:
+            left = max(0, match.start() - CONTEXT_CHARS)
+            right = min(len(line), match.end() + CONTEXT_CHARS)
+
+            matches.append({
+                "project_key": project_key,
+                "project_name": project_name,
+                "object_name": object_name,
+                "object_type": object_type,
+                "source": source,
+                "line_number": line_number,
+                "matched_text": match.group(0),
+                "line_text": line.strip(),
+                "context": line[left:right].strip()
+            })
+
+            count += 1
+
+    return count
+
+
+def notebook_source_to_text(source):
+    """Notebook hucre kaynagini metne cevirir."""
+
+    if isinstance(source, list):
+        return "".join(str(part) for part in source)
+
+    if isinstance(source, str):
+        return source
+
+    return ""
+
+
+def scan_python_notebook(project_key, project_name, notebook):
+    """Python/R/Scala notebook kod hucrelerini tarar."""
+
+    name = (
+        getattr(notebook, "notebook_name", None)
+        or getattr(notebook, "name", None)
+        or "unknown_notebook"
+    )
+
+    language = (
+        getattr(notebook, "language", None)
+        or "unknown"
+    )
+
+    if SEARCH_OBJECT_NAMES:
+        add_text_matches(
+            project_key, project_name, name,
+            "Code Notebook", "notebook_name", name
+        )
+
+    content = notebook.get_content()
+    cells = content.get_cells()
+
+    code_cells = 0
+
+    for index, cell in enumerate(cells, start=1):
+        if cell.get("cell_type") != "code":
+            continue
+
+        code_cells += 1
+
+        source = notebook_source_to_text(cell.get("source", []))
+
+        add_text_matches(
+            project_key, project_name, name,
+            "Code Notebook ({})".format(language),
+            "cell_{}".format(index),
+            source
+        )
+
+    return code_cells
+
+
+def scan_sql_notebook(project_key, project_name, notebook):
+    """SQL notebook hucrelerini tarar."""
+
+    content = notebook.get_content()
+    cells = content.cells
+
+    name = (
+        getattr(notebook, "id", None)
+        or getattr(notebook, "notebook_id", None)
+        or "unknown_sql_notebook"
+    )
+
+    language = (
+        getattr(notebook, "language", None)
+        or "SQL"
+    )
+
+    if SEARCH_OBJECT_NAMES:
+        add_text_matches(
+            project_key, project_name, str(name),
+            "SQL Notebook", "notebook_name", str(name)
+        )
+
+    for index, cell in enumerate(cells, start=1):
+        code = cell.get("code", "")
+
+        add_text_matches(
+            project_key, project_name, str(name),
+            "SQL Notebook ({})".format(language),
+            "cell_{}".format(index),
+            code
+        )
+
+
+# ================================================================
+# 3. PROJELERI KESFET
+# ================================================================
+
+project_keys = client.list_project_keys()
+
+print("=" * 76)
+print("DATAIKU GLOBAL SEARCH")
+print("=" * 76)
+print("Aranan terim       :", SEARCH_TERM)
+print("Arama modu         :", "Regex" if REGEX_MODE else "Metin")
+print("Harf duyarliligi   :", CASE_SENSITIVE)
+print("Erisilebilen proje :", len(project_keys))
+print("=" * 76)
+
+for project_index, project_key in enumerate(project_keys, start=1):
+
+    project_match_start = len(matches)
+    project_error_start = len(errors)
+
+    project_name = project_key
+    recipe_count = 0
+    recipe_success = 0
+    recipe_failed = 0
+    code_notebook_count = 0
+    code_notebook_success = 0
+    code_notebook_failed = 0
+    sql_notebook_count = 0
+    sql_notebook_success = 0
+    sql_notebook_failed = 0
+
+    try:
+        project = client.get_project(project_key)
+
+        try:
+            summary = project.get_summary()
+            project_name = (
+                summary.get("name")
+                or summary.get("projectName")
+                or project_key
+            )
+        except Exception as exc:
+            record_error(
+                project_key, project_name, "",
+                "Project", "get_summary", exc
+            )
+
+    except Exception as exc:
+        record_error(
+            project_key, project_name, "",
+            "Project", "get_project", exc
+        )
+
+        project_reports.append({
+            "project_key": project_key,
+            "project_name": project_name,
+            "recipes": 0,
+            "recipes_read": 0,
+            "recipes_failed": 0,
+            "code_notebooks": 0,
+            "code_notebooks_read": 0,
+            "code_notebooks_failed": 0,
+            "sql_notebooks": 0,
+            "sql_notebooks_read": 0,
+            "sql_notebooks_failed": 0,
+            "matches": 0,
+            "errors": len(errors) - project_error_start,
+            "status": "PROJE OKUNAMADI"
+        })
+        continue
+
+    # ------------------------------------------------------------
+    # 3A. RECIPE TARAMASI
+    # ------------------------------------------------------------
+
+    try:
+        recipe_items = project.list_recipes()
+    except Exception as exc:
+        recipe_items = []
+        record_error(
+            project_key, project_name, "",
+            "Recipe", "list_recipes", exc
+        )
+
+    recipe_count = len(recipe_items)
+
+    for recipe_item in recipe_items:
+        recipe_name = getattr(recipe_item, "name", str(recipe_item))
+        recipe_type = getattr(recipe_item, "type", "unknown")
+
+        try:
+            recipe = project.get_recipe(recipe_name)
+            settings = recipe.get_settings()
+
+            # Payload:
+            # Kod recipe'lerinde Python/SQL vb. kaynak kodu,
+            # gorsel recipe'lerde recipe'e ozel JSON yapisi.
+            payload = settings.str_payload
+
+            if payload is None:
+                payload = ""
+
+            if not isinstance(payload, str):
+                payload = str(payload)
+
+            if SEARCH_OBJECT_NAMES:
+                add_text_matches(
+                    project_key, project_name, recipe_name,
+                    "Recipe ({})".format(recipe_type),
+                    "recipe_name", recipe_name
+                )
+
+            # Payload'i satir numaralarini koruyarak tara.
+            add_text_matches(
+                project_key, project_name, recipe_name,
+                "Recipe ({})".format(recipe_type),
+                "recipe_payload", payload
+            )
+
+            recipe_success += 1
+
+        except Exception as exc:
+            recipe_failed += 1
+
+            record_error(
+                project_key, project_name, recipe_name,
+                "Recipe ({})".format(recipe_type),
+                "get_recipe/get_settings/str_payload",
+                exc
+            )
+
+    # ------------------------------------------------------------
+    # 3B. PYTHON / R / SCALA NOTEBOOK TARAMASI
+    # ------------------------------------------------------------
+
+    try:
+        code_notebooks = project.list_jupyter_notebooks(
+            as_type="objects"
+        )
+    except Exception as exc:
+        code_notebooks = []
+        record_error(
+            project_key, project_name, "",
+            "Code Notebook", "list_jupyter_notebooks", exc
+        )
+
+    code_notebook_count = len(code_notebooks)
+
+    for notebook in code_notebooks:
+        name = (
+            getattr(notebook, "notebook_name", None)
+            or getattr(notebook, "name", None)
+            or "unknown_notebook"
+        )
+
+        try:
+            scan_python_notebook(
+                project_key, project_name, notebook
+            )
+            code_notebook_success += 1
+
+        except Exception as exc:
+            code_notebook_failed += 1
+
+            record_error(
+                project_key, project_name, str(name),
+                "Code Notebook",
+                "get_content/get_cells",
+                exc
+            )
+
+    # ------------------------------------------------------------
+    # 3C. SQL NOTEBOOK TARAMASI
+    # ------------------------------------------------------------
+
+    try:
+        sql_notebooks = project.list_sql_notebooks(
+            as_type="objects"
+        )
+    except Exception as exc:
+        sql_notebooks = []
+        record_error(
+            project_key, project_name, "",
+            "SQL Notebook", "list_sql_notebooks", exc
+        )
+
+    sql_notebook_count = len(sql_notebooks)
+
+    for notebook in sql_notebooks:
+        name = (
+            getattr(notebook, "id", None)
+            or getattr(notebook, "notebook_id", None)
+            or "unknown_sql_notebook"
+        )
+
+        try:
+            scan_sql_notebook(
+                project_key, project_name, notebook
+            )
+            sql_notebook_success += 1
+
+        except Exception as exc:
+            sql_notebook_failed += 1
+
+            record_error(
+                project_key, project_name, str(name),
+                "SQL Notebook",
+                "get_content/cells",
+                exc
+            )
+
+    # ------------------------------------------------------------
+    # 3D. PROJE OZETI
+    # ------------------------------------------------------------
+
+    project_match_count = len(matches) - project_match_start
+    project_error_count = len(errors) - project_error_start
+
+    if project_error_count == 0:
+        status = "TAMAMLANDI"
+    elif (
+        recipe_success + code_notebook_success
+        + sql_notebook_success
+    ) > 0:
+        status = "KISMEN TAMAMLANDI"
+    else:
+        status = "HATA"
+
+    project_reports.append({
+        "project_key": project_key,
+        "project_name": project_name,
+        "recipes": recipe_count,
+        "recipes_read": recipe_success,
+        "recipes_failed": recipe_failed,
+        "code_notebooks": code_notebook_count,
+        "code_notebooks_read": code_notebook_success,
+        "code_notebooks_failed": code_notebook_failed,
+        "sql_notebooks": sql_notebook_count,
+        "sql_notebooks_read": sql_notebook_success,
+        "sql_notebooks_failed": sql_notebook_failed,
+        "matches": project_match_count,
+        "errors": project_error_count,
+        "status": status
+    })
+
+    print(
+        "[{}/{}] {} | Recipe: {}/{} | "
+        "Notebook: {}/{} | SQL Notebook: {}/{} | "
+        "Eslesme: {} | Hata: {} | {}".format(
+            project_index,
+            len(project_keys),
+            project_key,
+            recipe_success, recipe_count,
+            code_notebook_success, code_notebook_count,
+            sql_notebook_success, sql_notebook_count,
+            project_match_count,
+            project_error_count,
+            status
+        )
+    )
+
+# ================================================================
+# 4. DATAFRAME'LERI OLUSTUR
+# ================================================================
+
+match_columns = [
+    "project_key", "project_name", "object_name",
+    "object_type", "source", "line_number",
+    "matched_text", "line_text", "context"
+]
+
+error_columns = [
+    "project_key", "project_name", "object_name",
+    "object_type", "stage", "error_category",
+    "error", "suggestion"
+]
+
+project_columns = [
+    "project_key", "project_name",
+    "recipes", "recipes_read", "recipes_failed",
+    "code_notebooks", "code_notebooks_read",
+    "code_notebooks_failed",
+    "sql_notebooks", "sql_notebooks_read",
+    "sql_notebooks_failed",
+    "matches", "errors", "status"
+]
+
+df_results = pd.DataFrame(matches, columns=match_columns)
+df_errors = pd.DataFrame(errors, columns=error_columns)
+df_projects = pd.DataFrame(project_reports, columns=project_columns)
+
+if not df_results.empty:
+    df_results = df_results.drop_duplicates()
+    df_results = df_results.sort_values(
+        ["project_key", "object_type", "object_name", "line_number"]
+    ).reset_index(drop=True)
+
+if not df_errors.empty:
+    df_errors = df_errors.drop_duplicates().reset_index(drop=True)
+
+if not df_projects.empty:
+    df_projects = df_projects.sort_values(
+        ["errors", "project_key"],
+        ascending=[False, True]
+    ).reset_index(drop=True)
+
+# ================================================================
+# 5. GORSEL RAPOR
+# ================================================================
+
+elapsed_seconds = (datetime.now() - scan_started).total_seconds()
+
+total_recipe_count = int(df_projects["recipes"].sum()) if not df_projects.empty else 0
+total_recipe_read = int(df_projects["recipes_read"].sum()) if not df_projects.empty else 0
+total_recipe_failed = int(df_projects["recipes_failed"].sum()) if not df_projects.empty else 0
+
+total_code_nb = int(df_projects["code_notebooks"].sum()) if not df_projects.empty else 0
+total_code_nb_read = int(df_projects["code_notebooks_read"].sum()) if not df_projects.empty else 0
+total_code_nb_failed = int(df_projects["code_notebooks_failed"].sum()) if not df_projects.empty else 0
+
+total_sql_nb = int(df_projects["sql_notebooks"].sum()) if not df_projects.empty else 0
+total_sql_nb_read = int(df_projects["sql_notebooks_read"].sum()) if not df_projects.empty else 0
+total_sql_nb_failed = int(df_projects["sql_notebooks_failed"].sum()) if not df_projects.empty else 0
+
+total_errors = len(df_errors)
+total_matches = len(df_results)
+
+summary_html = """
+<div style="font-family:Arial,sans-serif;margin:12px 0 20px 0">
+  <h2 style="margin-bottom:5px">Dataiku Global Search Raporu</h2>
+  <p style="color:#666;margin-top:0">
+    Aranan terim: <b>{term}</b> |
+    Sure: {elapsed:.1f} saniye
+  </p>
+  <div style="display:flex;flex-wrap:wrap;gap:10px">
+    <div style="border:1px solid #ddd;border-radius:8px;padding:14px;min-width:125px">
+      <div style="color:#666;font-size:12px">PROJELER</div>
+      <div style="font-size:25px;font-weight:bold">{projects}</div>
+    </div>
+    <div style="border:1px solid #ddd;border-radius:8px;padding:14px;min-width:125px">
+      <div style="color:#666;font-size:12px">RECIPE</div>
+      <div style="font-size:25px;font-weight:bold">{recipes_read}/{recipes_total}</div>
+      <div style="font-size:12px;color:#666">Okunamayan: {recipes_failed}</div>
+    </div>
+    <div style="border:1px solid #ddd;border-radius:8px;padding:14px;min-width:125px">
+      <div style="color:#666;font-size:12px">KOD NOTEBOOK</div>
+      <div style="font-size:25px;font-weight:bold">{code_read}/{code_total}</div>
+      <div style="font-size:12px;color:#666">Okunamayan: {code_failed}</div>
+    </div>
+    <div style="border:1px solid #ddd;border-radius:8px;padding:14px;min-width:125px">
+      <div style="color:#666;font-size:12px">SQL NOTEBOOK</div>
+      <div style="font-size:25px;font-weight:bold">{sql_read}/{sql_total}</div>
+      <div style="font-size:12px;color:#666">Okunamayan: {sql_failed}</div>
+    </div>
+    <div style="border:1px solid #ddd;border-radius:8px;padding:14px;min-width:125px">
+      <div style="color:#666;font-size:12px">ESLESME</div>
+      <div style="font-size:25px;font-weight:bold">{matches}</div>
+    </div>
+    <div style="border:1px solid #ddd;border-radius:8px;padding:14px;min-width:125px">
+      <div style="color:#666;font-size:12px">HATA</div>
+      <div style="font-size:25px;font-weight:bold">{errors}</div>
+    </div>
+  </div>
+</div>
+""".format(
+    term=html.escape(SEARCH_TERM),
+    elapsed=elapsed_seconds,
+    projects=len(project_keys),
+    recipes_read=total_recipe_read,
+    recipes_total=total_recipe_count,
+    recipes_failed=total_recipe_failed,
+    code_read=total_code_nb_read,
+    code_total=total_code_nb,
+    code_failed=total_code_nb_failed,
+    sql_read=total_sql_nb_read,
+    sql_total=total_sql_nb,
+    sql_failed=total_sql_nb_failed,
+    matches=total_matches,
+    errors=total_errors
 )
+
+display(HTML(summary_html))
+
+# ================================================================
+# 6. ESLESMELER
+# ================================================================
+
+print("1. ESLESMELER")
+print("Bulunan satir sayisi:", total_matches)
+
+if df_results.empty:
+    print("Aranan terim icin eslesme bulunamadi.")
+else:
+    display(
+        df_results.style
+        .set_properties(**{
+            "text-align": "left",
+            "white-space": "pre-wrap"
+        })
+        .set_table_styles([
+            {
+                "selector": "th",
+                "props": [
+                    ("text-align", "left"),
+                    ("background-color", "#e8eef5"),
+                    ("padding", "8px")
+                ]
+            },
+            {
+                "selector": "td",
+                "props": [("padding", "6px")]
+            }
+        ])
+    )
+
+# ================================================================
+# 7. PROJE BAZLI TARAMA DURUMU
+# ================================================================
+
+print("\n2. PROJE BAZLI TARAMA DURUMU")
+display(df_projects)
+
+# ================================================================
+# 8. HATA ANALIZI
+# ================================================================
+
+print("\n3. HATA ANALIZI")
+
+if df_errors.empty:
+    print("Hata olusmadi.")
+else:
+    print("Hata kategorisi dagilimi:")
+
+    error_summary = (
+        df_errors.groupby(["error_category", "stage"])
+        .size()
+        .reset_index(name="count")
+        .sort_values("count", ascending=False)
+    )
+
+    display(error_summary)
+
+    print("\nHata detaylari:")
+    display(df_errors)
+
+# ================================================================
+# 9. CSV DISA AKTARIM
+# ================================================================
+
+if EXPORT_CSV:
+    try:
+        os.makedirs(EXPORT_DIR, exist_ok=True)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        result_path = os.path.join(
+            EXPORT_DIR,
+            "dataiku_search_results_{}.csv".format(timestamp)
+        )
+
+        error_path = os.path.join(
+            EXPORT_DIR,
+            "dataiku_search_errors_{}.csv".format(timestamp)
+        )
+
+        project_path = os.path.join(
+            EXPORT_DIR,
+            "dataiku_search_projects_{}.csv".format(timestamp)
+        )
+
+        df_results.to_csv(
+            result_path, index=False, encoding="utf-8-sig"
+        )
+        df_errors.to_csv(
+            error_path, index=False, encoding="utf-8-sig"
+        )
+        df_projects.to_csv(
+            project_path, index=False, encoding="utf-8-sig"
+        )
+
+        print("\n4. CSV DOSYALARI")
+        print("Eslesmeler :", result_path)
+        print("Hatalar    :", error_path)
+        print("Projeler   :", project_path)
+
+    except Exception as exc:
+        print("CSV kaydetme hatasi:", str(exc))
+
+print("\nTarama tamamlandi.")
