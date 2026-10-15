@@ -1,91 +1,11 @@
-```python
-# ============================================================
-# DATAIKU GLOBAL SEARCH - HATA ANALIZI
-# Mevcut df_errors DataFrame'ini kullanir.
-# ============================================================
 
-import pandas as pd
-from IPython.display import display
+# Recipe parametre hatalarini ayrintili incele
 
-if "df_errors" not in globals() or df_errors.empty:
-    print("Hata kaydi bulunamadi veya df_errors mevcut degil.")
-else:
-    error_df = df_errors.copy()
+mask = df_errors["object_type"].astype(str).eq("recipe_parameters")
 
-    # Hata mesajlarini duzenle
-    error_df["error"] = error_df["error"].fillna("").astype(str)
-    error_df["object_type"] = (
-        error_df["object_type"].fillna("unknown").astype(str)
-    )
-
-    def classify_error(message):
-        m = message.lower()
-
-        if "403" in m or "forbidden" in m or "permission" in m:
-            return "Yetki / erisim engeli"
-
-        if "404" in m or "not found" in m:
-            return "Nesne bulunamadi"
-
-        if "attributeerror" in m or "has no attribute" in m:
-            return "API metodu veya nesne ozelligi hatasi"
-
-        if "typeerror" in m or "unexpected keyword" in m:
-            return "API parametre uyumsuzlugu"
-
-        if "timeout" in m or "timed out" in m:
-            return "Zaman asimi"
-
-        if "connection" in m:
-            return "Baglanti hatasi"
-
-        if "401" in m or "unauthorized" in m:
-            return "Kimlik dogrulama hatasi"
-
-        if "500" in m or "internal server error" in m:
-            return "DSS sunucu hatasi"
-
-        return "Diger hata"
-
-    error_df["error_category"] = error_df["error"].apply(
-        classify_error
-    )
-
-    print("=" * 75)
-    print("DATAIKU ARAMA - HATA RAPORU")
-    print("=" * 75)
-
-    print("\nToplam hata kaydi:", len(error_df))
-
-    print("\n1. Hata kategorilerine gore dagilim")
-
-    summary = (
-        error_df.groupby("error_category")
-        .size()
-        .reset_index(name="count")
-        .sort_values("count", ascending=False)
-    )
-
-    display(summary)
-
-    print("\n2. Nesne turlerine gore hata dagilimi")
-
-    by_type = (
-        error_df.groupby(["object_type", "error_category"])
-        .size()
-        .reset_index(name="count")
-        .sort_values("count", ascending=False)
-    )
-
-    display(by_type)
-
-    print("\n3. Gercek hata mesajlari ve etkilenen nesneler")
-
-    # Uzun mesajlari okunabilir tut
-    display(
-        error_df[
-            ["project_key", "object_name",
-             "object_type", "error_category", "error"]
-        ].drop_duplicates().reset_index(drop=True)
-    )
-```
+display(
+    df_errors.loc[
+        mask,
+        ["project_key", "object_name", "object_type", "error"]
+    ].head(10).to_string(index=False)
+)
