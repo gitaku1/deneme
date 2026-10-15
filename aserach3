@@ -1,47 +1,181 @@
 
-<div class="filter-panel">
-  <div class="filter-grid">
-    <div class="filter-item">
-      <label for="projectFilter">Proje</label>
-      <select id="projectFilter">
-        <option value="">Tüm projeler</option>
-      </select>
+<div class="app-shell">
+  <header class="hero">
+    <div class="hero-icon">⌕</div>
+    <div class="hero-copy">
+      <div class="eyebrow">DATAIKU DEVELOPER TOOLS</div>
+      <h1>Global Code Search</h1>
+      <p>Projeler, recipe'ler ve notebook'lar arasında kod ara.</p>
+    </div>
+    <div class="hero-tag">DSS · Code Explorer</div>
+  </header>
+
+  <section class="search-card">
+    <label class="field-label" for="searchTerm">Aranacak ifade</label>
+    <div class="search-row">
+      <input id="searchTerm" type="text" value="v01paketleri_list"
+             placeholder="Kodda aranacak kelime..." />
+      <button id="searchButton" class="primary-button" type="button">
+        <span id="searchButtonText">⌕ Ara</span>
+      </button>
     </div>
 
-    <div class="filter-item">
-      <label for="typeFilter">Nesne türü</label>
-      <select id="typeFilter">
-        <option value="">Tüm türler</option>
-      </select>
+    <div class="search-options">
+      <label><input type="checkbox" id="caseSensitive"> Büyük/küçük harfe duyarlı</label>
+      <label><input type="checkbox" id="searchNames" checked> Nesne adlarında da ara</label>
     </div>
 
-    <div class="filter-item">
-      <label for="lineFilter">Satır numarası / aralığı</label>
-      <input id="lineFilter" type="text" placeholder="Örn. 25 veya 25-80">
+    <div id="status" class="status" role="status">
+      Arama yapmak için bir ifade girin.
+    </div>
+  </section>
+
+  <section class="metrics-grid">
+    <div class="metric-card">
+      <div class="metric-label">Taranan projeler</div>
+      <div id="metricProjects" class="metric-value">—</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Recipe</div>
+      <div id="metricRecipes" class="metric-value">—</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Notebook</div>
+      <div id="metricNotebooks" class="metric-value">—</div>
+    </div>
+    <div class="metric-card metric-highlight">
+      <div class="metric-label">Eşleşme</div>
+      <div id="metricMatches" class="metric-value">—</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Okuma hatası</div>
+      <div id="metricErrors" class="metric-value">—</div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="section-heading">
+      <div>
+        <h2>Arama sonuçları</h2>
+        <p>Sonuçları aşağıdaki filtrelerle daraltabilirsin.</p>
+      </div>
+      <button id="exportButton" class="secondary-button" type="button" disabled>
+        ↓ CSV dışa aktar
+      </button>
     </div>
 
-    <div class="filter-item">
-      <label for="limitFilter">Nesne başına eşleşme</label>
-      <select id="limitFilter">
-        <option value="0">Tümü</option>
-        <option value="1">En fazla 1</option>
-        <option value="3">En fazla 3</option>
-        <option value="5" selected>En fazla 5</option>
-        <option value="10">En fazla 10</option>
-      </select>
+    <div class="filter-grid">
+      <div class="filter-field">
+        <label for="projectFilter">Proje</label>
+        <select id="projectFilter">
+          <option value="">Tüm projeler</option>
+        </select>
+      </div>
+      <div class="filter-field">
+        <label for="typeFilter">Nesne türü</label>
+        <select id="typeFilter">
+          <option value="">Tüm türler</option>
+        </select>
+      </div>
+      <div class="filter-field">
+        <label for="lineFilter">Satır / aralık</label>
+        <input id="lineFilter" type="text" placeholder="Örn. 25 veya 25-80">
+      </div>
+      <div class="filter-field">
+        <label for="limitFilter">Nesne başına sonuç</label>
+        <select id="limitFilter">
+          <option value="0">Tümü</option>
+          <option value="1">En fazla 1</option>
+          <option value="3">En fazla 3</option>
+          <option value="5" selected>En fazla 5</option>
+          <option value="10">En fazla 10</option>
+        </select>
+      </div>
     </div>
-  </div>
 
-  <div class="filter-actions">
-    <label class="filter-check">
-      <input type="checkbox" id="dedupeFilter" checked>
-      Tekrarlanan kayıtları gizle
-    </label>
+    <div class="filter-toolbar">
+      <label class="check-label">
+        <input type="checkbox" id="dedupeFilter" checked>
+        Birebir aynı kayıtları gizle
+      </label>
+      <button id="resetFilters" class="text-button" type="button">
+        Filtreleri sıfırla
+      </button>
+      <span id="filterSummary" class="filter-summary">Henüz sonuç yok</span>
+    </div>
 
-    <button type="button" id="resetFilters">Filtreleri temizle</button>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Proje</th>
+            <th>Nesne</th>
+            <th>Tür</th>
+            <th>Kaynak</th>
+            <th>Satır</th>
+            <th>Eşleşme</th>
+            <th>Bağlam</th>
+          </tr>
+        </thead>
+        <tbody id="resultsTable">
+          <tr><td colspan="7" class="empty-cell">Henüz arama yapılmadı.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
 
-    <span id="filterSummary">Filtre bekleniyor</span>
-  </div>
+  <section class="panel">
+    <div class="section-heading">
+      <div>
+        <h2>Proje kapsamı</h2>
+        <p>Her projede kaç nesnenin incelendiği.</p>
+      </div>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Proje</th>
+            <th>Recipe</th>
+            <th>Python Notebook</th>
+            <th>SQL Notebook</th>
+            <th>Eşleşme</th>
+          </tr>
+        </thead>
+        <tbody id="projectsTable">
+          <tr><td colspan="5" class="empty-cell">Arama sonuçları bekleniyor.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="section-heading">
+      <div>
+        <h2>Okuma hataları</h2>
+        <p>Erişim veya içerik okuma hatalarını incele.</p>
+      </div>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Proje</th>
+            <th>Nesne</th>
+            <th>Tür</th>
+            <th>Hata</th>
+          </tr>
+        </thead>
+        <tbody id="errorsTable">
+          <tr><td colspan="4" class="empty-cell">Henüz hata kaydı yok.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="app-footer">
+    Global Code Search · Sonuç filtreleri yalnızca görüntüyü değiştirir; taranan kodu değiştirmez.
+  </footer>
 </div>
 
 
@@ -67,91 +201,370 @@
 
 
 
-
-
-
-
-
-
-
-
-.filter-panel {
-  background: #ffffff;
-  border: 1px solid #dfe5ee;
-  border-radius: 12px;
-  padding: 16px;
-  margin: 16px 0;
+:root {
+  --page: #f4f6fa;
+  --surface: #ffffff;
+  --text: #172033;
+  --muted: #68758b;
+  --border: #e1e6ef;
+  --accent: #315ce8;
+  --accent-dark: #2448c5;
+  --soft-blue: #edf2ff;
+  --success: #16805d;
+  --danger: #b54747;
+  --shadow: 0 5px 22px rgba(24, 39, 75, 0.045);
 }
 
-.filter-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(150px, 1fr));
-  gap: 12px;
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
 }
 
-.filter-item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
+button, input, select { font: inherit; }
+
+.app-shell {
+  width: min(1600px, 100%);
+  margin: 0 auto;
+  padding: 28px;
 }
 
-.filter-item label {
-  font-size: 12px;
-  font-weight: 600;
-  color: #526078;
-}
-
-.filter-item select,
-.filter-item input {
-  box-sizing: border-box;
-  width: 100%;
-  min-width: 0;
-  padding: 9px 10px;
-  border: 1px solid #d5dce7;
-  border-radius: 7px;
-  background: #fff;
-  color: #182338;
-}
-
-.filter-actions {
+.hero {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 16px;
-  margin-top: 14px;
-  font-size: 13px;
+  gap: 17px;
+  margin-bottom: 24px;
 }
 
-.filter-check {
+.hero-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: var(--accent);
+  color: white;
+  font-size: 36px;
+  font-weight: 300;
+  box-shadow: 0 8px 20px rgba(49, 92, 232, .2);
+}
+
+.hero-copy { flex: 1; }
+
+.eyebrow {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  margin-bottom: 5px;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(24px, 3vw, 32px);
+  letter-spacing: -0.8px;
+}
+
+.hero p, .section-heading p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.hero-tag {
+  color: #4d5b75;
+  border: 1px solid var(--border);
+  background: white;
+  padding: 8px 12px;
+  border-radius: 9px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.search-card, .panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  box-shadow: var(--shadow);
+}
+
+.search-card { padding: 22px; margin-bottom: 18px; }
+
+.field-label, .filter-field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: #46536b;
+  margin-bottom: 8px;
+}
+
+.search-row { display: flex; gap: 10px; }
+
+.search-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 13px 15px;
+  border: 1px solid #ccd5e5;
+  border-radius: 9px;
+  outline: none;
+  background: #fff;
+}
+
+.search-row input:focus, .filter-field input:focus,
+.filter-field select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(49, 92, 232, .10);
+}
+
+.primary-button, .secondary-button, .text-button {
+  cursor: pointer;
+  border-radius: 9px;
+  font-weight: 650;
+  transition: background .15s ease;
+}
+
+.primary-button {
+  min-width: 115px;
+  border: 0;
+  padding: 12px 18px;
+  background: var(--accent);
+  color: white;
+}
+
+.primary-button:hover { background: var(--accent-dark); }
+.primary-button:disabled { opacity: .6; cursor: wait; }
+
+.search-options {
   display: flex;
+  gap: 22px;
+  flex-wrap: wrap;
+  margin-top: 13px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.search-options label, .check-label {
+  display: inline-flex;
   align-items: center;
   gap: 7px;
 }
 
-#resetFilters {
-  padding: 8px 12px;
-  border: 1px solid #d5dce7;
-  border-radius: 7px;
-  background: #f7f9fc;
-  cursor: pointer;
+input[type="checkbox"] { accent-color: var(--accent); }
+
+.status {
+  margin-top: 15px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f6f8fc;
+  color: #536078;
+  font-size: 12px;
 }
 
-#filterSummary {
-  color: #526078;
-  margin-left: auto;
+.status.success { background: #edf9f3; color: var(--success); }
+.status.error { background: #fff0f0; color: var(--danger); }
+.status.loading { background: var(--soft-blue); color: var(--accent); }
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 13px;
+  margin-bottom: 18px;
 }
 
-@media (max-width: 900px) {
-  .filter-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+.metric-card {
+  min-width: 0;
+  padding: 18px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  box-shadow: var(--shadow);
 }
 
-@media (max-width: 520px) {
-  .filter-grid {
-    grid-template-columns: 1fr;
-  }
+.metric-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.metric-value {
+  margin-top: 9px;
+  font-size: 28px;
+  font-weight: 750;
+  letter-spacing: -.8px;
+  overflow-wrap: anywhere;
+}
+
+.metric-highlight {
+  border-color: #ccd7ff;
+  background: linear-gradient(145deg, #fff, #f3f6ff);
+}
+
+.metric-highlight .metric-value { color: var(--accent); }
+
+.panel { margin-bottom: 18px; overflow: hidden; }
+
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 20px 22px;
+}
+
+.section-heading h2 { margin: 0; font-size: 17px; letter-spacing: -.2px; }
+.section-heading p { font-size: 12px; }
+
+.secondary-button {
+  background: white;
+  border: 1px solid #ccd5e5;
+  color: #263550;
+  padding: 10px 13px;
+  white-space: nowrap;
+}
+
+.secondary-button:hover { background: #f4f6fa; }
+.secondary-button:disabled { opacity: .45; cursor: not-allowed; }
+
+.filter-grid {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr 1fr;
+  gap: 12px;
+  padding: 0 22px 16px;
+}
+
+.filter-field { min-width: 0; }
+
+.filter-field input, .filter-field select {
+  width: 100%;
+  min-width: 0;
+  height: 39px;
+  padding: 8px 10px;
+  color: var(--text);
+  border: 1px solid #d5dce8;
+  border-radius: 8px;
+  background: #fff;
+  outline: none;
+}
+
+.filter-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 12px 22px;
+  background: #fafbfe;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: #58657b;
+}
+
+.text-button {
+  background: transparent;
+  border: 0;
+  color: var(--accent);
+  padding: 5px;
+}
+
+.filter-summary { margin-left: auto; }
+
+.table-scroll { width: 100%; overflow-x: auto; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: left;
+}
+
+thead { background: #f8f9fc; }
+
+th {
+  color: #657188;
+  font-size: 10px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: .55px;
+  white-space: nowrap;
+}
+
+th, td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #edf0f5;
+  vertical-align: top;
+}
+
+td { overflow-wrap: anywhere; }
+tbody tr:hover { background: #f8faff; }
+tbody tr:last-child td { border-bottom: 0; }
+
+td:nth-child(1), td:nth-child(2) { font-weight: 600; }
+td:nth-child(5) { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+.match-text {
+  color: #2349bc;
+  background: #edf2ff;
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+.context-text {
+  color: #58657b;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 420px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+}
+
+.type-pill {
+  display: inline-block;
+  padding: 4px 7px;
+  border-radius: 6px;
+  background: #f0f3f8;
+  color: #4c5b73;
+  white-space: nowrap;
+}
+
+.empty-cell {
+  padding: 28px;
+  text-align: center;
+  color: #8a95a8;
+  font-weight: 400 !important;
+}
+
+.app-footer {
+  text-align: center;
+  padding: 8px 0 20px;
+  color: #8993a5;
+  font-size: 11px;
+}
+
+@media (max-width: 1000px) {
+  .app-shell { padding: 18px; }
+  .metrics-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hero-tag { display: none; }
+}
+
+@media (max-width: 600px) {
+  .app-shell { padding: 10px; }
+  .hero-icon { flex-basis: 44px; height: 44px; font-size: 29px; }
+  .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .metric-card { padding: 13px; }
+  .metric-value { font-size: 24px; }
+  .search-card { padding: 15px; }
+  .search-row { flex-direction: column; }
+  .search-row .primary-button { width: 100%; }
+  .filter-grid { grid-template-columns: 1fr; padding: 0 15px 15px; }
+  .section-heading { align-items: flex-start; padding: 16px; }
+  .filter-toolbar { padding: 12px 15px; gap: 12px; }
+  .filter-summary { width: 100%; margin-left: 0; }
 }
 
 
@@ -170,89 +583,146 @@
 
 
 
+const $ = id => document.getElementById(id);
 
+let allResults = [];
+let allProjects = [];
+let allErrors = [];
+let filteredResults = [];
+let hasSearchResults = false;
 
-
-
-
-
-
-let allSearchResults = [];
-
-function populateFilter(id, values, firstLabel) {
-    const select = document.getElementById(id);
-    const previousValue = select.value;
-
-    select.innerHTML = "";
-
-    const first = document.createElement("option");
-    first.value = "";
-    first.textContent = firstLabel;
-    select.appendChild(first);
-
-    [...new Set(values.filter(v => v !== undefined && v !== null && String(v) !== ""))]
-        .sort((a, b) => String(a).localeCompare(String(b)))
-        .forEach(value => {
-            const option = document.createElement("option");
-            option.value = String(value);
-            option.textContent = String(value);
-            select.appendChild(option);
-        });
-
-    if ([...select.options].some(o => o.value === previousValue)) {
-        select.value = previousValue;
-    }
+function escapeHtml(value) {
+    return String(value ?? "").replace(/[&<>"']/g, ch => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+    })[ch]);
 }
 
-function getLineRange() {
-    const value = document.getElementById("lineFilter").value.trim();
-
-    if (!value) return null;
-
-    const range = value.match(/^(\d+)\s*-\s*(\d+)$/);
-    if (range) {
-        return {
-            min: Math.min(Number(range[1]), Number(range[2])),
-            max: Math.max(Number(range[1]), Number(range[2]))
-        };
-    }
-
-    if (/^\d+$/.test(value)) {
-        return { min: Number(value), max: Number(value) };
-    }
-
-    return "invalid";
+function setStatus(message, type = "") {
+    $("status").textContent = message;
+    $("status").className = "status" + (type ? " " + type : "");
 }
 
-function applyResultFilters() {
-    const project = document.getElementById("projectFilter").value;
-    const type = document.getElementById("typeFilter").value;
-    const lineRange = getLineRange();
-    const limit = Number(document.getElementById("limitFilter").value);
-    const dedupe = document.getElementById("dedupeFilter").checked;
+function renderRows(tableId, rows, columns) {
+    const tbody = $(tableId);
 
-    if (lineRange === "invalid") {
-        document.getElementById("filterSummary").textContent =
-            "Satır için 25 veya 25-80 biçimini kullanın.";
+    if (!rows || rows.length === 0) {
+        tbody.innerHTML =
+            `<tr><td colspan="${columns.length}" class="empty-cell">Gösterilecek kayıt yok.</td></tr>`;
         return;
     }
 
-    let rows = allSearchResults.filter(row => {
+    tbody.innerHTML = rows.map(row => {
+        const cells = columns.map(col => {
+            const value = row[col.key] ?? "";
+            let content = escapeHtml(value);
+
+            if (col.key === "type") {
+                content = `<span class="type-pill">${content}</span>`;
+            } else if (col.key === "match") {
+                content = `<span class="match-text">${content}</span>`;
+            } else if (col.key === "context") {
+                content = `<span class="context-text">${content}</span>`;
+            }
+
+            return `<td>${content}</td>`;
+        }).join("");
+
+        return `<tr>${cells}</tr>`;
+    }).join("");
+}
+
+function populateSelect(id, values, defaultLabel) {
+    const select = $(id);
+    const oldValue = select.value;
+    const uniqueValues = [...new Set(
+        values.filter(v => v !== undefined && v !== null && String(v) !== "")
+            .map(String)
+    )].sort((a, b) => a.localeCompare(b));
+
+    select.replaceChildren();
+
+    const first = document.createElement("option");
+    first.value = "";
+    first.textContent = defaultLabel;
+    select.appendChild(first);
+
+    uniqueValues.forEach(value => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = value;
+        select.appendChild(option);
+    });
+
+    if (uniqueValues.includes(oldValue)) {
+        select.value = oldValue;
+    }
+}
+
+function updateMetrics(summary = {}) {
+    $("metricProjects").textContent = summary.projects_read ?? 0;
+    $("metricRecipes").textContent = summary.recipes_read ?? 0;
+
+    const notebooks =
+        Number(summary.python_notebooks_read ?? 0) +
+        Number(summary.sql_notebooks_read ?? 0);
+
+    $("metricNotebooks").textContent = notebooks;
+    $("metricMatches").textContent = summary.matches_found ?? 0;
+    $("metricErrors").textContent = summary.errors_count ?? 0;
+}
+
+function getLineRange() {
+    const raw = $("lineFilter").value.trim();
+
+    if (!raw) return null;
+
+    let match = raw.match(/^(\d+)$/);
+    if (match) {
+        return { min: Number(match[1]), max: Number(match[1]) };
+    }
+
+    match = raw.match(/^(\d+)\s*-\s*(\d+)$/);
+    if (match) {
+        return {
+            min: Math.min(Number(match[1]), Number(match[2])),
+            max: Math.max(Number(match[1]), Number(match[2]))
+        };
+    }
+
+    return false;
+}
+
+function applyFilters() {
+    const project = $("projectFilter").value;
+    const type = $("typeFilter").value;
+    const range = getLineRange();
+    const limit = Number($("limitFilter").value);
+    const dedupe = $("dedupeFilter").checked;
+
+    if (range === false) {
+        $("filterSummary").textContent =
+            "Satır filtresi için 25 veya 25-80 biçimini kullan.";
+        return;
+    }
+
+    let rows = allResults.filter(row => {
         if (project && String(row.project) !== project) return false;
         if (type && String(row.type) !== type) return false;
 
-        if (lineRange) {
+        if (range) {
             const line = Number(row.line);
-            if (!Number.isFinite(line) ||
-                line < lineRange.min || line > lineRange.max) {
+            if (!Number.isFinite(line) || line < range.min || line > range.max) {
                 return false;
             }
         }
-
         return true;
     });
 
-    const beforeDedupe = rows.length;
+    const afterBasicFilters = rows.length;
 
     if (dedupe) {
         const seen = new Set();
@@ -269,17 +739,15 @@ function applyResultFilters() {
         });
     }
 
-    const beforeLimit = rows.length;
+    const afterDedupe = rows.length;
 
     if (limit > 0) {
         const counts = new Map();
 
         rows = rows.filter(row => {
-            const key = JSON.stringify([
-                row.project, row.object, row.type
-            ]);
-
+            const key = JSON.stringify([row.project, row.object, row.type]);
             const count = counts.get(key) || 0;
+
             if (count >= limit) return false;
 
             counts.set(key, count + 1);
@@ -287,7 +755,129 @@ function applyResultFilters() {
         });
     }
 
-    renderTable("resultsTable", rows, [
+    filteredResults = rows;
+
+    renderRows("resultsTable", rows, [
+        { key: "project" },
+        { key: "object" },
+        { key: "type" },
+        { key: "source" },
+        { key: "line" },
+        { key: "match" },
+        { key: "context" }
+    ]);
+
+    $("filterSummary").textContent =
+        `${rows.length} gösteriliyor · ` +
+        `${afterBasicFilters - afterDedupe} tekrar gizlendi · ` +
+        `${afterDedupe - rows.length} limit nedeniyle gizlendi`;
+}
+
+function displaySearchResult(data) {
+    allResults = Array.isArray(data.results) ? data.results : [];
+    allProjects = Array.isArray(data.projects) ? data.projects : [];
+    allErrors = Array.isArray(data.errors) ? data.errors : [];
+    hasSearchResults = true;
+
+    updateMetrics(data.summary || {});
+
+    populateSelect(
+        "projectFilter",
+        allResults.map(row => row.project),
+        "Tüm projeler"
+    );
+
+    populateSelect(
+        "typeFilter",
+        allResults.map(row => row.type),
+        "Tüm türler"
+    );
+
+    renderRows("projectsTable", allProjects, [
+        { key: "project" },
+        { key: "recipes_read" },
+        { key: "python_notebooks_read" },
+        { key: "sql_notebooks_read" },
+        { key: "matches_found" }
+    ]);
+
+    renderRows("errorsTable", allErrors, [
+        { key: "project" },
+        { key: "object" },
+        { key: "type" },
+        { key: "error" }
+    ]);
+
+    $("exportButton").disabled = allResults.length === 0;
+    applyFilters();
+}
+
+async function runSearch() {
+    const term = $("searchTerm").value.trim();
+
+    if (!term) {
+        setStatus("Lütfen aranacak bir ifade gir.", "error");
+        $("searchTerm").focus();
+        return;
+    }
+
+    $("searchButton").disabled = true;
+    $("searchButtonText").textContent = "Aranıyor...";
+    setStatus("Projeler ve kod nesneleri taranıyor. Büyük projelerde işlem sürebilir.", "loading");
+
+    try {
+        const response = await fetch(getWebAppBackendUrl("/api/search"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                term: term,
+                case_sensitive: $("caseSensitive").checked,
+                search_names: $("searchNames").checked
+            })
+        });
+
+        const body = await response.text();
+        let data;
+
+        try {
+            data = JSON.parse(body);
+        } catch (parseError) {
+            throw new Error(
+                "Backend JSON yerine farklı bir yanıt döndürdü. HTTP " +
+                response.status + ". Yanıt: " + body.substring(0, 350)
+            );
+        }
+
+        if (!response.ok) {
+            throw new Error(data.error || "HTTP " + response.status);
+        }
+
+        if (data.error) {
+            throw new Error(data.error);
+        }
+
+        displaySearchResult(data);
+        setStatus(
+            `Arama tamamlandı. ${allResults.length} ham eşleşme, ` +
+            `${allErrors.length} okuma hatası.`,
+            "success"
+        );
+    } catch (error) {
+        console.error("Global Code Search:", error);
+        setStatus("Arama başarısız: " + error.message, "error");
+    } finally {
+        $("searchButton").disabled = false;
+        $("searchButtonText").textContent = "⌕ Ara";
+    }
+}
+
+function exportCsv() {
+    if (!filteredResults.length) {
+        setStatus("Dışa aktarılacak filtrelenmiş sonuç bulunamadı.", "error");
+        return;
+    }
+
+    const columns = [
         ["project", "Project"],
         ["object", "Object"],
         ["type", "Type"],
@@ -295,56 +885,55 @@ function applyResultFilters() {
         ["line", "Line"],
         ["match", "Match"],
         ["context", "Context"]
-    ]);
+    ];
 
-    const hiddenDuplicates = beforeDedupe - beforeLimit;
-    const hiddenByLimit = beforeLimit - rows.length;
+    const quote = value =>
+        '"' + String(value ?? "").replace(/"/g, '""') + '"';
 
-    document.getElementById("filterSummary").textContent =
-        rows.length + " sonuç gösteriliyor · " +
-        hiddenDuplicates + " tekrar gizlendi · " +
-        hiddenByLimit + " limit nedeniyle gizlendi";
-}
+    const lines = [
+        columns.map(col => quote(col[1])).join(","),
+        ...filteredResults.map(row =>
+            columns.map(col => quote(row[col[0]])).join(",")
+        )
+    ];
 
-function setupResultFilters(results) {
-    allSearchResults = Array.isArray(results) ? results : [];
-
-    populateFilter(
-        "projectFilter",
-        allSearchResults.map(row => row.project),
-        "Tüm projeler"
+    const blob = new Blob(
+        ["\uFEFF" + lines.join("\r\n")],
+        { type: "text/csv;charset=utf-8;" }
     );
 
-    populateFilter(
-        "typeFilter",
-        allSearchResults.map(row => row.type),
-        "Tüm türler"
-    );
-
-    applyResultFilters();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "global_code_search.csv";
+    link.click();
+    URL.revokeObjectURL(url);
 }
+
+$("searchButton").addEventListener("click", runSearch);
+
+$("searchTerm").addEventListener("keydown", event => {
+    if (event.key === "Enter") runSearch();
+});
 
 [
-    "projectFilter",
-    "typeFilter",
-    "lineFilter",
-    "limitFilter",
-    "dedupeFilter"
+    "projectFilter", "typeFilter", "lineFilter",
+    "limitFilter", "dedupeFilter"
 ].forEach(id => {
-    document.getElementById(id).addEventListener("input", applyResultFilters);
-    document.getElementById(id).addEventListener("change", applyResultFilters);
+    $(id).addEventListener("input", applyFilters);
+    $(id).addEventListener("change", applyFilters);
 });
 
-document.getElementById("resetFilters").addEventListener("click", () => {
-    document.getElementById("projectFilter").value = "";
-    document.getElementById("typeFilter").value = "";
-    document.getElementById("lineFilter").value = "";
-    document.getElementById("limitFilter").value = "5";
-    document.getElementById("dedupeFilter").checked = true;
-
-    applyResultFilters();
+$("resetFilters").addEventListener("click", () => {
+    $("projectFilter").value = "";
+    $("typeFilter").value = "";
+    $("lineFilter").value = "";
+    $("limitFilter").value = "5";
+    $("dedupeFilter").checked = true;
+    applyFilters();
 });
 
+$("exportButton").addEventListener("click", exportCsv);
 
 
 
@@ -356,8 +945,539 @@ document.getElementById("resetFilters").addEventListener("click", () => {
 
 
 
-renderTable("resultsTable", data.results, ...);
 
 
 
-setupResultFilters(data.results);
+
+
+
+
+
+
+
+
+
+
+
+
+
+import json
+import logging
+import re
+import time
+
+import dataiku
+from flask import request, jsonify
+
+logger = logging.getLogger(__name__)
+
+
+# ------------------------------------------------------------
+# Genel yardımcılar
+# ------------------------------------------------------------
+
+def get_value(obj, *names, default=None):
+    """Dict veya nesne üzerinden olası alan adlarını dener."""
+    for name in names:
+        try:
+            if isinstance(obj, dict):
+                value = obj.get(name)
+            else:
+                value = getattr(obj, name, None)
+
+            if value is not None:
+                return value
+        except Exception:
+            pass
+
+    return default
+
+
+def to_text(value):
+    """Metin, liste, dict veya notebook source içeriğini metne çevirir."""
+    if value is None:
+        return ""
+
+    if isinstance(value, str):
+        return value
+
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+
+    if isinstance(value, (list, tuple)):
+        return "\n".join(to_text(item) for item in value)
+
+    if isinstance(value, dict):
+        for key in ("source", "query", "sql", "code", "text", "content"):
+            if key in value:
+                result = to_text(value[key])
+                if result:
+                    return result
+
+        try:
+            return json.dumps(value, ensure_ascii=False, default=str, indent=2)
+        except Exception:
+            return str(value)
+
+    # Dataiku notebook cell nesnelerinde sık kullanılan alanlar
+    for key in ("source", "query", "sql", "code", "text", "content"):
+        value2 = get_value(value, key)
+        if value2 is not None:
+            result = to_text(value2)
+            if result:
+                return result
+
+    return str(value)
+
+
+def get_name(obj, *candidates):
+    value = get_value(obj, *candidates)
+    if value is None and isinstance(obj, str):
+        value = obj
+    return str(value) if value is not None else ""
+
+
+def get_project_label(project, project_key):
+    try:
+        metadata = project.get_metadata()
+        raw = metadata.get_raw()
+        label = raw.get("label") or raw.get("name")
+        if label:
+            return str(label)
+    except Exception:
+        pass
+
+    return str(project_key)
+
+
+def object_name_matches(name, term, case_sensitive):
+    if not name:
+        return False
+
+    if case_sensitive:
+        return term in name
+
+    return term.casefold() in name.casefold()
+
+
+def find_matches(text, term, case_sensitive):
+    """Metindeki eşleşmeleri satır numarası ve kısa bağlamla bulur."""
+    if not text:
+        return []
+
+    lines = str(text).splitlines()
+    matches = []
+
+    for index, line in enumerate(lines):
+        found = (
+            term in line
+            if case_sensitive
+            else term.casefold() in line.casefold()
+        )
+
+        if not found:
+            continue
+
+        start = max(0, index - 1)
+        end = min(len(lines), index + 2)
+
+        context = "\n".join(
+            f"{line_no + 1}: {lines[line_no]}"
+            for line_no in range(start, end)
+        )
+
+        matches.append({
+            "line": index + 1,
+            "match": line.strip()[:1000],
+            "context": context[:2500]
+        })
+
+    return matches
+
+
+def add_name_match(results, project_label, object_name, object_type,
+                   term, case_sensitive):
+    if object_name_matches(object_name, term, case_sensitive):
+        results.append({
+            "project": project_label,
+            "object": object_name,
+            "type": object_type,
+            "source": "Object name",
+            "line": "—",
+            "match": object_name,
+            "context": "Eşleşme nesne adında bulundu."
+        })
+
+
+def scan_text(results, project_label, object_name, object_type,
+              source_name, text, term, case_sensitive):
+    for match in find_matches(text, term, case_sensitive):
+        results.append({
+            "project": project_label,
+            "object": object_name,
+            "type": object_type,
+            "source": source_name,
+            "line": match["line"],
+            "match": match["match"],
+            "context": match["context"]
+        })
+
+
+def record_error(errors, project_label, object_name, object_type, exc):
+    message = str(exc).strip() or type(exc).__name__
+
+    errors.append({
+        "project": project_label,
+        "object": object_name or "(bilinmiyor)",
+        "type": object_type,
+        "error": message[:1500]
+    })
+
+    logger.warning(
+        "Code search read error: project=%s object=%s type=%s error=%s",
+        project_label, object_name, object_type, message,
+        exc_info=True
+    )
+
+
+def get_notebook_cells(content):
+    """Notebook içeriğinden hücre listesini farklı API şekillerinde alır."""
+    if content is None:
+        return []
+
+    cells = get_value(content, "cells")
+    if cells is not None:
+        return list(cells)
+
+    get_cells = get_value(content, "get_cells")
+    if callable(get_cells):
+        return list(get_cells())
+
+    return []
+
+
+def get_cell_source(cell):
+    for key in ("source", "query", "sql", "code", "text"):
+        value = get_value(cell, key)
+        if value is not None:
+            return to_text(value)
+
+    return ""
+
+
+# ------------------------------------------------------------
+# Recipe taraması
+# ------------------------------------------------------------
+
+def scan_recipes(project, project_key, project_label, term,
+                 case_sensitive, search_names, results, errors,
+                 counts):
+    try:
+        recipes = project.list_recipes()
+    except Exception as exc:
+        record_error(
+            errors, project_label, "(recipe listesi)", "Recipe", exc
+        )
+        return
+
+    for item in recipes:
+        recipe_name = get_name(item, "name", "recipe_name", "id")
+
+        if not recipe_name:
+            record_error(
+                errors, project_label, "(recipe adı alınamadı)",
+                "Recipe", "Recipe adı belirlenemedi."
+            )
+            continue
+
+        try:
+            recipe = project.get_recipe(recipe_name)
+            settings = recipe.get_settings()
+
+            # DSS recipe ayarlarının JSON metin temsili
+            payload = get_value(settings, "str_payload")
+
+            if payload is None:
+                raw = settings.get_raw()
+                payload = json.dumps(
+                    raw, ensure_ascii=False, default=str, indent=2
+                )
+
+            counts["recipes_read"] += 1
+
+            if search_names:
+                add_name_match(
+                    results, project_label, recipe_name, "Recipe",
+                    term, case_sensitive
+                )
+
+            scan_text(
+                results, project_label, recipe_name, "Recipe",
+                "Recipe settings", to_text(payload),
+                term, case_sensitive
+            )
+
+        except Exception as exc:
+            record_error(
+                errors, project_label, recipe_name, "Recipe", exc
+            )
+
+
+# ------------------------------------------------------------
+# Python / Jupyter notebook taraması
+# ------------------------------------------------------------
+
+def scan_python_notebooks(project, project_label, term,
+                          case_sensitive, search_names,
+                          results, errors, counts):
+    try:
+        notebooks = project.list_jupyter_notebooks(as_type="objects")
+    except Exception as exc:
+        record_error(
+            errors, project_label, "(Python notebook listesi)",
+            "Python Notebook", exc
+        )
+        return
+
+    for item in notebooks:
+        name = get_name(
+            item, "notebook_name", "name", "id", "notebook_id"
+        )
+
+        if not name:
+            record_error(
+                errors, project_label, "(notebook adı alınamadı)",
+                "Python Notebook", "Notebook adı belirlenemedi."
+            )
+            continue
+
+        try:
+            notebook = project.get_jupyter_notebook(name)
+            content = notebook.get_content()
+            cells = get_notebook_cells(content)
+            counts["python_notebooks_read"] += 1
+
+            if search_names:
+                add_name_match(
+                    results, project_label, name, "Python Notebook",
+                    term, case_sensitive
+                )
+
+            for cell_index, cell in enumerate(cells, start=1):
+                source = get_cell_source(cell)
+                if not source:
+                    continue
+
+                cell_type = get_value(cell, "cell_type", "type")
+                if cell_type and str(cell_type).lower() not in (
+                    "code", "python", "input"
+                ):
+                    continue
+
+                scan_text(
+                    results, project_label, name, "Python Notebook",
+                    f"Cell {cell_index}", source,
+                    term, case_sensitive
+                )
+
+        except Exception as exc:
+            record_error(
+                errors, project_label, name, "Python Notebook", exc
+            )
+
+
+# ------------------------------------------------------------
+# SQL notebook taraması
+# ------------------------------------------------------------
+
+def scan_sql_notebooks(project, project_label, term,
+                       case_sensitive, search_names,
+                       results, errors, counts):
+    try:
+        notebooks = project.list_sql_notebooks(as_type="objects")
+    except Exception as exc:
+        record_error(
+            errors, project_label, "(SQL notebook listesi)",
+            "SQL Notebook", exc
+        )
+        return
+
+    for item in notebooks:
+        name = get_name(
+            item, "notebook_id", "id", "name", "notebook_name"
+        )
+
+        if not name:
+            record_error(
+                errors, project_label, "(SQL notebook adı alınamadı)",
+                "SQL Notebook", "Notebook kimliği belirlenemedi."
+            )
+            continue
+
+        try:
+            notebook = project.get_sql_notebook(name)
+            content = notebook.get_content()
+            cells = get_notebook_cells(content)
+            counts["sql_notebooks_read"] += 1
+
+            if search_names:
+                add_name_match(
+                    results, project_label, name, "SQL Notebook",
+                    term, case_sensitive
+                )
+
+            # Bazı DSS sürümlerinde SQL notebook hücre yerine
+            # query/text alanı içerebilir.
+            if not cells:
+                raw_text = to_text(content)
+                scan_text(
+                    results, project_label, name, "SQL Notebook",
+                    "Notebook content", raw_text,
+                    term, case_sensitive
+                )
+                continue
+
+            for cell_index, cell in enumerate(cells, start=1):
+                source = get_cell_source(cell)
+                if not source:
+                    continue
+
+                scan_text(
+                    results, project_label, name, "SQL Notebook",
+                    f"Cell {cell_index}", source,
+                    term, case_sensitive
+                )
+
+        except Exception as exc:
+            record_error(
+                errors, project_label, name, "SQL Notebook", exc
+            )
+
+
+# ------------------------------------------------------------
+# Global arama
+# ------------------------------------------------------------
+
+def run_global_search(term, case_sensitive=False, search_names=True):
+    started = time.time()
+
+    results = []
+    errors = []
+    project_rows = []
+
+    total = {
+        "projects_read": 0,
+        "recipes_read": 0,
+        "python_notebooks_read": 0,
+        "sql_notebooks_read": 0
+    }
+
+    client = dataiku.api_client()
+    project_keys = client.list_project_keys()
+
+    for project_key in project_keys:
+        project_key = str(project_key)
+        project_label = project_key
+
+        counts = {
+            "recipes_read": 0,
+            "python_notebooks_read": 0,
+            "sql_notebooks_read": 0
+        }
+
+        try:
+            project = client.get_project(project_key)
+            project_label = get_project_label(project, project_key)
+            total["projects_read"] += 1
+        except Exception as exc:
+            record_error(
+                errors, project_label, "(project)", "Project", exc
+            )
+            continue
+
+        scan_recipes(
+            project, project_key, project_label, term,
+            case_sensitive, search_names, results, errors, counts
+        )
+
+        scan_python_notebooks(
+            project, project_label, term, case_sensitive,
+            search_names, results, errors, counts
+        )
+
+        scan_sql_notebooks(
+            project, project_label, term, case_sensitive,
+            search_names, results, errors, counts
+        )
+
+        project_matches = sum(
+            1 for row in results if row["project"] == project_label
+        )
+
+        project_rows.append({
+            "project": project_label,
+            "recipes_read": counts["recipes_read"],
+            "python_notebooks_read": counts["python_notebooks_read"],
+            "sql_notebooks_read": counts["sql_notebooks_read"],
+            "matches_found": project_matches
+        })
+
+        for key in counts:
+            total[key] += counts[key]
+
+    summary = {
+        "projects_read": total["projects_read"],
+        "recipes_read": total["recipes_read"],
+        "python_notebooks_read": total["python_notebooks_read"],
+        "sql_notebooks_read": total["sql_notebooks_read"],
+        "matches_found": len(results),
+        "errors_count": len(errors),
+        "duration_seconds": round(time.time() - started, 2)
+    }
+
+    return {
+        "summary": summary,
+        "results": results,
+        "projects": sorted(
+            project_rows, key=lambda row: row["project"].casefold()
+        ),
+        "errors": errors
+    }
+
+
+# ------------------------------------------------------------
+# Dataiku Standard Webapp API route
+# app nesnesi Dataiku tarafından sağlanır.
+# Yeni Flask uygulaması oluşturmayın.
+# ------------------------------------------------------------
+
+@app.route("/api/search", methods=["POST"])
+def api_search():
+    try:
+        payload = request.get_json(silent=True) or {}
+
+        term = str(payload.get("term") or "").strip()
+        case_sensitive = bool(payload.get("case_sensitive", False))
+        search_names = bool(payload.get("search_names", True))
+
+        if not term:
+            return jsonify({"error": "Aranacak ifade boş olamaz."}), 400
+
+        if len(term) > 300:
+            return jsonify({
+                "error": "Aranacak ifade en fazla 300 karakter olabilir."
+            }), 400
+
+        result = run_global_search(
+            term=term,
+            case_sensitive=case_sensitive,
+            search_names=search_names
+        )
+
+        return jsonify(result)
+
+    except Exception as exc:
+        logger.exception("Global Code Search failed")
+        return jsonify({
+            "error": str(exc)[:1500]
+        }), 500
