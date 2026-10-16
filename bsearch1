@@ -5,72 +5,83 @@ import os
 
 STATE_FILE = "kube_config_state.json"
 
-# Aranacak eski kalıp (Joker içerebilir) ve yeni değer
-OLD = "/home/dataiku/.kube/path/*"
-NEW = "/home/dataiku/.kube/yenipath/abc/dataiku-pod"
+# Değiştirmek istediğiniz eski kalıp (örn: içerisindeki herhangi bir eski path veya wildcard) ve YENİ path
+OLD_PATTERN = "/home/dataiku/.kube"  # Kapsamlı yakalamak için ana kök dizin veya eski path kalıbı
+NEW_PATH = "/home/users/.kube"      # Yazmak istediğiniz yeni dizin
 
 def adim1_listele_ve_onizle():
     client = dataiku.api_client()
     settings = client.get_general_settings()
     raw_settings = settings.get_raw()
 
-    regex_pattern = re.escape(OLD).replace(r"\*", ".*")
+    regex_pattern = re.escape(OLD_PATTERN).replace(r"\*", ".*")
     changes = []
 
-    def find_and_preview(obj, path="root"):
+    # Sadece containerSettings -> executionConfigs altındaki 40+ tanımı hedefleyen tarayıcı
+    def scan_configs(obj, path="root"):
         if isinstance(obj, dict):
-            for k in list(obj.keys()):
-                v = obj[k]
+            for k, v in obj.items():
+                current_path = f"{path}.{k}"
                 if isinstance(v, (dict, list)):
-                    find_and_preview(v, f"{path}.{k}")
+                    scan_configs(v, current_path)
                 elif isinstance(v, str):
-                    if re.search(regex_pattern, v):
-                        new_val = re.sub(regex_pattern, NEW, v)
-                        changes.append({
-                            'path': f"{path}.{k}",
-                            'eski_yol': v,
-                            'yeni_yol': new_val
-                        })
+                    # Kube config path içeren anahtarları veya içinde .kube geçen değerleri yakala
+                    if 'kube' in k.lower() or 'kube' in v.lower():
+                        # Eğer zaten yeni path ile aynı değilse listeye ekle
+                        if v != NEW_PATH:
+                            changes.append({
+                                'path': current_path,
+                                'eski_yol': v,
+                                'yeni_yol': NEW_PATH
+                            })
         elif isinstance(obj, list):
-            for i in range(len(obj)):
-                v = obj[i]
+            for i, v in enumerate(obj):
+                current_path = f"{path}[{i}]"
                 if isinstance(v, (dict, list)):
-                    find_and_preview(v, f"{path}[{i}]")
+                    scan_configs(v, current_path)
                 elif isinstance(v, str):
-                    if re.search(regex_pattern, v):
-                        new_val = re.sub(regex_pattern, NEW, v)
-                        changes.append({
-                            'path': f"{path}[{i}]",
-                            'eski_yol': v,
-                            'yeni_yol': new_val
-                        })
+                    if 'kube' in v.lower():
+                        if v != NEW_PATH:
+                            changes.append({
+                                'path': current_path,
+                                'eski_yol': v,
+                                'yeni_yol': NEW_PATH
+                            })
 
-    exec_configs = raw_settings.get("containerSettings", {}).get("executionConfigs", [])
-    for i, cfg in enumerate(exec_configs):
-        find_and_preview(cfg, f"executionConfigs[{i}]")
+    # Hedef alanı doğrudan executionConfigs altından başlatıyoruz
+    container_settings = raw_settings.get("containerSettings", {})
+    execution_configs = container_settings.get("executionConfigs", [])
 
-    print("\n=== [1. ADIM] BULUNAN VE DEĞİŞECEK ALANLAR ==-\n")
+    print(f"Bilgi: Toplam {len(execution_configs)} adet container execution yapılandırması inceleniyor...\n")
+
+    for i, cfg in enumerate(execution_configs):
+        scan_configs(cfg, f"executionConfigs[{i}]")
+
+    print(f"=== [1. ADIM] BULUNAN TOPLAM KUBE CONFIG TANIMI: {len(changes)} ===")
+    
     if not changes:
-        print("Uyarı: Belirtilen kalıba uyan hiçbir eşleşme bulunamadı!")
+        print("[Uyarı] Hiçbir kube config tanımı bulunamadı!")
         return
 
-    for item in changes:
+    # İlk 10 tanesini ekrana yazdırıp örnek gösterelim (40 taneyi boğmamak için)
+    for item in changes[:10]:
         print(f"PATH : {item['path']}")
         print(f"ESKI : {item['eski_yol']}")
         print(f"YENİ : {item['yeni_yol']}")
-        print("-" * 40)
+        print("-" * 30)
+    
+    if len(changes) > 10:
+        print(f"... ve benzeri toplam {len(changes)} adet tanım bulundu.")
 
-    print(f"\nToplam Bulunan Değişiklik: {len(changes)}")
-
-    # 2. Adım ve 3. Adım için durumu dosyaya kaydet
+    # 2. ve 3. adım için verileri kaydet
     state_data = {
-        'old_pattern': OLD,
-        'new_pattern': NEW,
+        'new_path': NEW_PATH,
         'changes': changes
     }
     with open(STATE_FILE, 'w', encoding='utf-8') as f:
         json.dump(state_data, f, indent=4)
-    print(f"\n[Bilgi] Önizleme tamamlandı. Durum '{STATE_FILE}' dosyasına kaydedildi.")
+        
+    print(f"\n[Başarılı] Tüm eşleşmeler '{STATE_FILE}' dosyasına kaydedildi. Şimdi 2. adıma geçebilirsiniz.")
 
 if __name__ == "__main__":
     adim1_listele_ve_onizle()
