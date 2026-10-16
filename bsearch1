@@ -1,79 +1,62 @@
 import dataiku
-import re
 import json
 import os
 
 STATE_FILE = "kube_config_state.json"
 
-# Değiştirmek istediğiniz eski kalıp (örn: içerisindeki herhangi bir eski path veya wildcard) ve YENİ path
-OLD_PATTERN = "/home/dataiku/.kube"  # Kapsamlı yakalamak için ana kök dizin veya eski path kalıbı
-NEW_PATH = "/home/users/.kube"      # Yazmak istediğiniz yeni dizin
+# YENİ SET ETMEK İSTEDİĞİNİZ DİZİN:
+NEW_PATH = "/home/users/.kube/config" 
 
 def adim1_listele_ve_onizle():
     client = dataiku.api_client()
     settings = client.get_general_settings()
     raw_settings = settings.get_raw()
 
-    regex_pattern = re.escape(OLD_PATTERN).replace(r"\*", ".*")
     changes = []
 
-    # Sadece containerSettings -> executionConfigs altındaki 40+ tanımı hedefleyen tarayıcı
-    def scan_configs(obj, path="root"):
-        if isinstance(obj, dict):
-            for k, v in obj.items():
-                current_path = f"{path}.{k}"
-                if isinstance(v, (dict, list)):
-                    scan_configs(v, current_path)
-                elif isinstance(v, str):
-                    # Kube config path içeren anahtarları veya içinde .kube geçen değerleri yakala
-                    if 'kube' in k.lower() or 'kube' in v.lower():
-                        # Eğer zaten yeni path ile aynı değilse listeye ekle
-                        if v != NEW_PATH:
-                            changes.append({
-                                'path': current_path,
-                                'eski_yol': v,
-                                'yeni_yol': NEW_PATH
-                            })
-        elif isinstance(obj, list):
-            for i, v in enumerate(obj):
-                current_path = f"{path}[{i}]"
-                if isinstance(v, (dict, list)):
-                    scan_configs(v, current_path)
-                elif isinstance(v, str):
-                    if 'kube' in v.lower():
-                        if v != NEW_PATH:
-                            changes.append({
-                                'path': current_path,
-                                'eski_yol': v,
-                                'yeni_yol': NEW_PATH
-                            })
-
-    # Hedef alanı doğrudan executionConfigs altından başlatıyoruz
-    container_settings = raw_settings.get("containerSettings", {})
-    execution_configs = container_settings.get("executionConfigs", [])
-
-    print(f"Bilgi: Toplam {len(execution_configs)} adet container execution yapılandırması inceleniyor...\n")
+    # Sadece containerSettings -> executionConfigs dizisini hedef alıyoruz
+    execution_configs = raw_settings.get("containerSettings", {}).get("executionConfigs", [])
+    
+    print(f"Toplam {len(execution_configs)} adet container execution taranıyor...\n")
 
     for i, cfg in enumerate(execution_configs):
-        scan_configs(cfg, f"executionConfigs[{i}]")
+        # Her execution config içerisindeki parametreleri ve kube config alanlarını kontrol et
+        # Genellikle 'kubeConfigPath' veya benzeri bir key'dir.
+        # Burada hem key adında 'kube' ve 'path' geçenleri hem de params altındaki alanları inceliyoruz.
+        
+        def find_kube_paths(obj, current_path):
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    full_p = f"{current_path}.{k}"
+                    # Eğer anahtar adında kube ve config/path geçiyorsa veya değer bir dosya yolu ise
+                    if any(key_term in k.lower() for key_term in ['kubeconfig', 'kubeconfigpath', 'kubepath', 'configpath']):
+                        if isinstance(v, str):
+                            changes.append({
+                                'path': full_p,
+                                'eski_yol': v,
+                                'yeni_yol': NEW_PATH
+                            })
+                    elif isinstance(v, (dict, list)):
+                        find_kube_paths(v, full_p)
+            elif isinstance(obj, list):
+                for idx, item in enumerate(obj):
+                    find_kube_paths(item, f"{current_path}[{idx}]")
 
-    print(f"=== [1. ADIM] BULUNAN TOPLAM KUBE CONFIG TANIMI: {len(changes)} ===")
+        find_kube_paths(cfg, f"executionConfigs[{i}]")
+
+    print(f"=== [1. ADIM] BULUNAN GERÇEK KUBE CONFIG SAYISI: {len(changes)} ===")
     
     if not changes:
-        print("[Uyarı] Hiçbir kube config tanımı bulunamadı!")
+        print("[Uyarı] Hedef alanlarda uygun kube config path anahtarı bulunamadı!")
         return
 
-    # İlk 10 tanesini ekrana yazdırıp örnek gösterelim (40 taneyi boğmamak için)
-    for item in changes[:10]:
+    for item in changes:
         print(f"PATH : {item['path']}")
         print(f"ESKI : {item['eski_yol']}")
         print(f"YENİ : {item['yeni_yol']}")
-        print("-" * 30)
-    
-    if len(changes) > 10:
-        print(f"... ve benzeri toplam {len(changes)} adet tanım bulundu.")
+        print("-" * 40)
 
-    # 2. ve 3. adım için verileri kaydet
+    # Durumu kaydet
     state_data = {
         'new_path': NEW_PATH,
         'changes': changes
@@ -81,7 +64,7 @@ def adim1_listele_ve_onizle():
     with open(STATE_FILE, 'w', encoding='utf-8') as f:
         json.dump(state_data, f, indent=4)
         
-    print(f"\n[Başarılı] Tüm eşleşmeler '{STATE_FILE}' dosyasına kaydedildi. Şimdi 2. adıma geçebilirsiniz.")
+    print(f"\n[Başarılı] Sadece doğru olan {len(changes)} adet kayıt '{STATE_FILE}' dosyasına yazıldı.")
 
 if __name__ == "__main__":
     adim1_listele_ve_onizle()
