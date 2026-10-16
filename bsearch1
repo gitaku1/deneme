@@ -1,221 +1,76 @@
 import dataiku
+import re
 import json
 import os
 
 STATE_FILE = "kube_config_state.json"
 
-def adim1_listele_ve_onizle(yeni_kube_path):
+# Aranacak eski kalıp (Joker içerebilir) ve yeni değer
+OLD = "/home/dataiku/.kube/path/*"
+NEW = "/home/dataiku/.kube/yenipath/abc/dataiku-pod"
+
+def adim1_listele_ve_onizle():
     client = dataiku.api_client()
-    print("=== [1. KOD] Container Execution / Kube Config Tarama Başlatıldı ===")
-    
-    bulunan_ogeler = []
-    
-    # 1. Yöntem: Standart Cluster'ları Tara
-    try:
-        clusters = client.list_clusters()
-        for c in clusters:
-            cluster_id = c['id']
-            cluster_obj = client.get_cluster(cluster_id)
-            settings = cluster_obj.get_settings()
-            params = settings.get('params', {})
-            
-            # Kube config anahtarının olası varyasyonlarını kontrol et
-            current_path = (params.get('kubeConfigPath') or 
-                            params.get('kubeconfig') or 
-                            params.get('kubeConfig') or 
-                            params.get('configPath'))
-            
-            if current_path or 'kube' in str(params).lower():
-                print(f"[Cluster Bulundu] ID: {cluster_id} | Mevcut Yol: {current_path or 'Bulunamadı (Parametrelerde var)'}")
-                bulunan_ogeler.append({
-                    'tip': 'cluster',
-                    'id': cluster_id,
-                    'eski_yol': current_path or '',
-                    'yeni_yol': yeni_kube_path
-                })
-    except Exception as e:
-        print(f"Cluster tarama uyarısı: {str(e)}")
+    settings = client.get_general_settings()
+    raw_settings = settings.get_raw()
 
-    # 2. Yöntem: Container Executions / Additional Settings Tarama (Dataiku API Genişletme)
-    # Eğer cluster listesinde bulunamazsa, DSS instance genel parametreleri veya container templates taranır
-    try:
-        # DSS mimarisine göre container execution şablonları veya connection ayarları
-        if hasattr(client, 'list_container_templates'):
-            templates = client.list_container_templates()
-            for t in templates:
-                t_id = t.get('id') or t.get('name')
-                t_obj = client.get_container_template(t_id)
-                t_settings = t_obj.get_settings()
-                t_params = t_settings.get('params', {})
-                
-                current_path = (t_params.get('kubeConfigPath') or 
-                                t_params.get('kubeconfig') or 
-                                t_params.get('kubeConfig'))
-                
-                if current_path:
-                    print(f"[Container Template Bulundu] ID: {t_id} | Mevcut Yol: {current_path}")
-                    bulunan_ogeler.append({
-                        'tip': 'container_template',
-                        'id': t_id,
-                        'eski_yol': current_path,
-                        'yeni_yol': yeni_kube_path
-                    })
-    except Exception as e:
-        pass
+    regex_pattern = re.escape(OLD).replace(r"\*", ".*")
+    changes = []
 
-    if not bulunan_ogeler:
-        print("\n[Uyarı] Otomatik taramada kube config path içeren bir kayıt bulunamadı.")
-        print("Lütfen Dataiku üzerindeki tam cluster ID'nizi veya konfigürasyon adınızı kontrol edin.")
-    else:
-        state_data = {'ogeler': bulunan_ogeler}
-        with open(STATE_FILE, 'w', encoding='utf-8') as f:
-            json.dump(state_data, f, indent=4)
-        print(f"\n[Başarılı] Toplam {len(bulunan_ogeler)} adet konfigürasyon bulundu ve '{STATE_FILE}' dosyasına kaydedildi.")
+    def find_and_preview(obj, path="root"):
+        if isinstance(obj, dict):
+            for k in list(obj.keys()):
+                v = obj[k]
+                if isinstance(v, (dict, list)):
+                    find_and_preview(v, f"{path}.{k}")
+                elif isinstance(v, str):
+                    if re.search(regex_pattern, v):
+                        new_val = re.sub(regex_pattern, NEW, v)
+                        changes.append({
+                            'path': f"{path}.{k}",
+                            'eski_yol': v,
+                            'yeni_yol': new_val
+                        })
+        elif isinstance(obj, list):
+            for i in range(len(obj)):
+                v = obj[i]
+                if isinstance(v, (dict, list)):
+                    find_and_preview(v, f"{path}[{i}]")
+                elif isinstance(v, str):
+                    if re.search(regex_pattern, v):
+                        new_val = re.sub(regex_pattern, NEW, v)
+                        changes.append({
+                            'path': f"{path}[{i}]",
+                            'eski_yol': v,
+                            'yeni_yol': new_val
+                        })
 
-if __name__ == "__main__":
-    # Kendi yeni kube config path'inizi buraya yazın:
-    adim1_listele_ve_onizle(yeni_kube_path="/home/users/.kube/config")
+    exec_configs = raw_settings.get("containerSettings", {}).get("executionConfigs", [])
+    for i, cfg in enumerate(exec_configs):
+        find_and_preview(cfg, f"executionConfigs[{i}]")
 
-
-
-
-
-
-
-
-
-
-
-
-import dataiku
-import json
-import os
-
-STATE_FILE = "kube_config_state.json"
-
-def adim2_kaydet_ve_uygula():
-    print("=== [2. KOD] Kube Config Değişiklikleri Kaydediliyor ===")
-    
-    if not os.path.exists(STATE_FILE):
-        print(f"Hata: Önce 1. kodu çalıştırmalısınız! ({STATE_FILE} bulunamadı)")
+    print("\n=== [1. ADIM] BULUNAN VE DEĞİŞECEK ALANLAR ==-\n")
+    if not changes:
+        print("Uyarı: Belirtilen kalıba uyan hiçbir eşleşme bulunamadı!")
         return
-        
-    with open(STATE_FILE, 'r', encoding='utf-8') as f:
-        state_data = json.load(f)
-        
-    client = dataiku.api_client()
-    
-    for item in state_data.get('ogeler', []):
-        tip = item['tip']
-        og_id = item['id']
-        yeni_yol = item['yeni_yol']
-        
-        if tip == 'cluster':
-            cluster_obj = client.get_cluster(og_id)
-            settings = cluster_obj.get_settings()
-            params = settings.get('params', {})
-            
-            if 'kubeConfigPath' in params:
-                params['kubeConfigPath'] = yeni_yol
-            elif 'kubeconfig' in params:
-                params['kubeconfig'] = yeni_yol
-            else:
-                params['kubeConfigPath'] = yeni_yol
-                
-            cluster_obj.save()
-            print(f"[Cluster Güncellendi] ID: {og_id} -> Yeni Yol: {yeni_yol}")
-            
-        elif tip == 'container_template':
-            t_obj = client.get_container_template(og_id)
-            settings = t_obj.get_settings()
-            params = settings.get('params', {})
-            
-            if 'kubeConfigPath' in params:
-                params['kubeConfigPath'] = yeni_yol
-            elif 'kubeconfig' in params:
-                params['kubeconfig'] = yeni_yol
-            else:
-                params['kubeConfigPath'] = yeni_yol
-                
-            t_obj.save()
-            print(f"[Container Template Güncellendi] ID: {og_id} -> Yeni Yol: {yeni_yol}")
-            
-    print("\n[Bilgi] Kayıt ve güncelleme işlemi başarıyla tamamlandı.")
+
+    for item in changes:
+        print(f"PATH : {item['path']}")
+        print(f"ESKI : {item['eski_yol']}")
+        print(f"YENİ : {item['yeni_yol']}")
+        print("-" * 40)
+
+    print(f"\nToplam Bulunan Değişiklik: {len(changes)}")
+
+    # 2. Adım ve 3. Adım için durumu dosyaya kaydet
+    state_data = {
+        'old_pattern': OLD,
+        'new_pattern': NEW,
+        'changes': changes
+    }
+    with open(STATE_FILE, 'w', encoding='utf-8') as f:
+        json.dump(state_data, f, indent=4)
+    print(f"\n[Bilgi] Önizleme tamamlandı. Durum '{STATE_FILE}' dosyasına kaydedildi.")
 
 if __name__ == "__main__":
-    adim2_kaydet_ve_uygula()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-import dataiku
-import json
-import os
-
-STATE_FILE = "kube_config_state.json"
-
-def adim3_geri_al():
-    print("=== [3. KOD] Rollback (Geri Alma) Başlatıldı ===")
-    
-    if not os.path.exists(STATE_FILE):
-        print(f"Hata: Geri alınacak durum dosyası bulunamadı ({STATE_FILE})!")
-        return
-        
-    with open(STATE_FILE, 'r', encoding='utf-8') as f:
-        state_data = json.load(f)
-        
-    client = dataiku.api_client()
-    
-    for item in state_data.get('ogeler', []):
-        tip = item['tip']
-        og_id = item['id']
-        eski_yol = item['eski_yol']
-        
-        if tip == 'cluster':
-            cluster_obj = client.get_cluster(og_id)
-            settings = cluster_obj.get_settings()
-            params = settings.get('params', {})
-            
-            if 'kubeConfigPath' in params:
-                params['kubeConfigPath'] = eski_yol
-            elif 'kubeconfig' in params:
-                params['kubeconfig'] = eski_yol
-            else:
-                params['kubeConfigPath'] = eski_yol
-                
-            cluster_obj.save()
-            print(f"[Cluster Geri Alındı] ID: {og_id} -> Orijinal Yol: {eski_yol}")
-            
-        elif tip == 'container_template':
-            t_obj = client.get_container_template(og_id)
-            settings = t_obj.get_settings()
-            params = settings.get('params', {})
-            
-            if 'kubeConfigPath' in params:
-                params['kubeConfigPath'] = eski_yol
-            elif 'kubeconfig' in params:
-                params['kubeconfig'] = eski_yol
-            else:
-                params['kubeConfigPath'] = eski_yol
-                
-            t_obj.save()
-            print(f"[Container Template Geri Alındı] ID: {og_id} -> Orijinal Yol: {eski_yol}")
-            
-    print("\n[Bilgi] Rollback başarıyla tamamlandı. Tüm ayarlar eski haline döndü.")
-
-if __name__ == "__main__":
-    adim3_geri_al()
+    adim1_listele_ve_onizle()
