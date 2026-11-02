@@ -1,0 +1,78 @@
+import smtplib
+import email
+import logging
+from os.path import basename
+from email.mime.application import MIMEApplication
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email.mime.text import MIMEText
+from email.utils import COMMASPACE, formatdate
+from email import encoders
+
+# Detaylı loglama yapılandırması (Zaman damgası ve log seviyesi ile)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+
+send_from = 'N8com'
+send_to = ['N8com']
+subject = "POD icerisinden pythondan mail deneme"
+smtp_server = "mailcom"  # 14. satırdaki sunucu adresi
+port = 25  # Kurumsal iç ağ portu
+
+assert isinstance(send_to, list)
+
+try:
+    logging.info("E-posta (MIMEMultipart) yapısı hazırlanıyor...")
+    msg = MIMEMultipart()
+    msg['From'] = send_from
+    msg['To'] = COMMASPACE.join(send_to)
+    msg['Date'] = formatdate(localtime=True)
+    msg['Subject'] = subject
+
+    html = """\
+    <html>
+    <head>Merhaba,<br><br>deneme
+    <br><br>Tesekkurler<br><br></head>
+    <body>
+    </body>
+    </html>
+    """
+    
+    # HTML içeriği mesaja iliştiriliyor
+    msg.attach(MIMEText(html, 'html'))
+
+    logging.info(f"SMTP sunucusuna bağlanılıyor: {smtp_server}:{port}")
+    smtp = smtplib.SMTP(smtp_server, port)
+    
+    # KRİTİK NOKTA: Sunucu ile arandaki tüm TCP/SMTP trafiğini konsola döker
+    smtp.set_debuglevel(1)
+
+    logging.info("EHLO komutu gönderiliyor...")
+    smtp.ehlo()
+
+    logging.info("Mail gönderimi (sendmail) başlatılıyor...")
+    # sendmail metodu, reddedilen adresleri bir sözlük (dict) olarak döndürür
+    bad_recipients = smtp.sendmail(send_from, send_to, msg.as_string())
+
+    if bad_recipients:
+        logging.warning(f"Mail şu alıcılara iletilemedi/reddedildi: {bad_recipients}")
+    else:
+        logging.info("E-posta başarıyla kuyruğa/sunucuya iletildi!")
+
+    logging.info("SMTP bağlantısı güvenli bir şekilde kapatılıyor (quit).")
+    smtp.quit()
+
+except smtplib.SMTPAuthenticationError as e:
+    logging.error(f"Kimlik doğrulama hatası: {e.smtp_code} - {e.smtp_error}")
+except smtplib.SMTPRecipientsRefused as e:
+    logging.error(f"Tüm alıcı adresleri sunucu tarafından reddedildi: {e}")
+except smtplib.SMTPDataError as e:
+    logging.error(f"Sunucu veri/içerik hatası (Spam filtresi vb.): {e.smtp_code} - {e.smtp_error}")
+except smtplib.SMTPConnectError as e:
+    logging.error(f"Sunucuya bağlantı kurulamadı (Network/Port engeli olabilir): {e}")
+except smtplib.SMTPException as e:
+    logging.error(f"Genel bir SMTP protokol hatası oluştu: {e}")
+except Exception as e:
+    logging.error(f"Beklenmeyen bir Python hatası oluştu: {str(e)}")
