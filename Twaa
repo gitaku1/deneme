@@ -1,0 +1,24 @@
+import json
+
+# 1. Notebook dosyanızı okuyun
+with open('Oracle_Connection.ipynb', 'r', encoding='utf-8') as f:
+    nb = json.load(f)
+
+# 2. Sadece 'code' hücrelerindeki kodları ayıklayın ve birleştirin
+code_lines = []
+for cell in nb.get('cells', []):
+    if cell.get('cell_type') == 'code':
+        source = cell.get('source', '')
+        if isinstance(source, list):
+            cell_text = "".join(source)
+        else:
+            cell_text = str(source)
+        
+        if cell_text.strip():
+            code_lines.append(cell_text + "\n\n# " + "="*30 + "\n\n")
+
+# 3. Temiz metin dosyası olarak kaydedin
+with open('temiz_kodlar.txt', 'w', encoding='utf-8') as out:
+    out.writelines(code_lines)
+
+print("İşlem tamam! Kodlar 'temiz_kodlar.txt' dosyasına kaydedildi.")
